@@ -63,7 +63,7 @@ stopBtn.onclick = async () => {
             }
             const audioBlob = new Blob([audioArray], { type: data.mimetype });
             const audioUrl = URL.createObjectURL(audioBlob);
-
+            
             // Set the audio player source and play
             audioElement.src = audioUrl;
             audioContainer.style.display = 'block';
