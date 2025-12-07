@@ -1,3 +1,8 @@
+// API Configuration - automatically detects environment
+const API_BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://127.0.0.1:5000'  // Local development
+    : 'https://your-backend-url.onrender.com';  // Production - UPDATE THIS with your backend URL!
+
 let mediaRecorder;
 let audioChunks = [];
 
@@ -46,7 +51,7 @@ stopBtn.onclick = async () => {
         formData.append('target_lang', targetLang);
 
         try {
-            const response = await fetch('http://127.0.0.1:5000/translate', {
+            const response = await fetch(`${API_BASE_URL}/translate`, {
                 method: 'POST',
                 body: formData,
             });
