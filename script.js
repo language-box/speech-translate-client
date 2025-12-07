@@ -1,7 +1,13 @@
 // API Configuration - automatically detects environment
+// TODO: Replace 'https://your-backend-url.onrender.com' with your actual backend URL!
 const API_BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'http://127.0.0.1:5000'  // Local development
-    : 'https://your-backend-url.onrender.com';  // Production - UPDATE THIS with your backend URL!
+    : 'https://your-backend-url.onrender.com';  // Production - UPDATE THIS!
+
+// Warn if API URL is still placeholder
+if (API_BASE_URL.includes('your-backend-url')) {
+    console.error('⚠️ API_BASE_URL is not configured! Please update script.js with your backend URL.');
+}
 
 let mediaRecorder;
 let audioChunks = [];
@@ -51,12 +57,22 @@ stopBtn.onclick = async () => {
         formData.append('target_lang', targetLang);
 
         try {
-            const response = await fetch(`${API_BASE_URL}/translate`, {
+            const apiUrl = `${API_BASE_URL}/translate`;
+            console.log('🌐 Calling API:', apiUrl);
+            console.log('📤 Sending data:', { sourceLang, targetLang, audioSize: blob.size });
+            
+            const response = await fetch(apiUrl, {
                 method: 'POST',
                 body: formData,
             });
 
-            if (!response.ok) throw new Error('Translation failed');
+            console.log('📥 Response status:', response.status, response.statusText);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('❌ API Error:', errorText);
+                throw new Error(`Translation failed: ${response.status} ${response.statusText}`);
+            }
 
             const data = await response.json();
             
@@ -88,8 +104,17 @@ stopBtn.onclick = async () => {
                 status.textContent = '✅ Translation complete! Play audio...';
             }
         } catch (err) {
-            console.error(err);
-            status.textContent = '❌ Error during translation.';
+            console.error('❌ Full error:', err);
+            console.error('❌ Error message:', err.message);
+            console.error('❌ Error stack:', err.stack);
+            
+            let errorMsg = '❌ Error during translation.';
+            if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+                errorMsg = '❌ Network error: Cannot reach backend. Check API URL and CORS settings.';
+            } else if (err.message) {
+                errorMsg = `❌ ${err.message}`;
+            }
+            status.textContent = errorMsg;
         }
 
         recordBtn.disabled = false;
