@@ -10,9 +10,6 @@ if (API_BASE_URL.includes('your-backend-url')) {
 
 let mediaRecorder;
 let audioChunks = [];
-let currentAudioBlob = null; // Store the current audio blob for downloading
-let currentAudioUrl = null; // Store the current audio URL for cleanup
-let currentMimeType = null; // Store the current audio mimetype
 
 const recordBtn = document.getElementById('recordBtn');
 const stopBtn = document.getElementById('stopBtn');
@@ -20,7 +17,6 @@ const status = document.getElementById('status');
 const audioElement = document.getElementById('player');
 const audioContainer = document.getElementById('audioContainer');
 const closeAudioBtn = document.getElementById('closeAudio');
-const downloadBtn = document.getElementById('downloadBtn');
 const targetLangSelect = document.getElementById('targetLang');
 const englishTranslationDiv = document.getElementById('englishTranslation');
 
@@ -86,30 +82,11 @@ stopBtn.onclick = async () => {
                 audioArray[i] = audioBytes.charCodeAt(i);
             }
             const audioBlob = new Blob([audioArray], { type: data.mimetype });
-            
-            // Clean up previous URL if it exists
-            if (currentAudioUrl) {
-                URL.revokeObjectURL(currentAudioUrl);
-            }
-            
             const audioUrl = URL.createObjectURL(audioBlob);
-            
-            // Store the blob, URL, and mimetype for downloading and cleanup
-            currentAudioBlob = audioBlob;
-            currentAudioUrl = audioUrl;
-            currentMimeType = data.mimetype || 'audio/mpeg';
             
             // Set the audio player source and play
             audioElement.src = audioUrl;
             audioContainer.style.display = 'block';
-            downloadBtn.style.display = 'inline-block';
-            
-            // Update download button text based on format
-            const format = currentMimeType.includes('mp3') || currentMimeType.includes('mpeg') ? 'MP3' :
-                          currentMimeType.includes('wav') ? 'WAV' :
-                          currentMimeType.includes('ogg') ? 'OGG' : 'Audio';
-            downloadBtn.textContent = `⬇️ Download ${format}`;
-            
             audioElement.play();
 
             // Display English translation if available
@@ -147,43 +124,8 @@ stopBtn.onclick = async () => {
 closeAudioBtn.onclick = () => {
     audioElement.pause();
     audioElement.src = '';
-    if (currentAudioUrl) {
-        URL.revokeObjectURL(currentAudioUrl);
-        currentAudioUrl = null;
-    }
     audioContainer.style.display = 'none';
-    downloadBtn.style.display = 'none';
     englishTranslationDiv.style.display = 'none';
     englishTranslationDiv.textContent = '';
-    currentAudioBlob = null;
-    currentMimeType = null;
     status.textContent = '🔴 Ready to record';
-};
-
-downloadBtn.onclick = () => {
-    if (!currentAudioBlob) return;
-    
-    // Determine file extension from mimetype (default to mp3)
-    let extension = 'mp3';
-    if (currentMimeType) {
-        if (currentMimeType.includes('mp3') || currentMimeType.includes('mpeg')) {
-            extension = 'mp3';
-        } else if (currentMimeType.includes('wav')) {
-            extension = 'wav';
-        } else if (currentMimeType.includes('ogg')) {
-            extension = 'ogg';
-        } else if (currentMimeType.includes('webm')) {
-            extension = 'webm';
-        }
-    }
-    
-    // Create a download link
-    const url = URL.createObjectURL(currentAudioBlob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `translated-audio-${Date.now()}.${extension}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
 };
