@@ -1,0 +1,113 @@
+ body {
+     font-family: Arial, sans-serif;
+     background-color: #f8f8f8;
+     display: flex;
+     justify-content: center;
+     align-items: center;
+     height: 100vh;
+ }
+
+ .container {
+     background: white;
+     padding: 80px;
+     border-radius: 12px;
+     box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+     text-align: center;
+     max-width: 600px;
+     width: 100%;
+ }
+
+ h1 {
+     margin-bottom: 20px;
+ }
+
+ .lang-select {
+     margin-bottom: 20px;
+     display: flex;
+     gap: 20px;
+     justify-content: center;
+     align-items: center;
+     flex-wrap: wrap;
+ }
+
+ .lang-group {
+     display: flex;
+     align-items: center;
+     gap: 10px;
+ }
+
+ .lang-group label {
+     font-weight: bold;
+     min-width: 50px;
+ }
+
+ select {
+     margin: 0 10px;
+     padding: 5px;
+ }
+
+ button {
+     padding: 10px 20px;
+     margin: 5px;
+     border: none;
+     border-radius: 5px;
+     background-color: #007bff;
+     color: white;
+     cursor: pointer;
+ }
+
+ button:disabled {
+     background-color: #aaa;
+     cursor: not-allowed;
+ }
+
+ #status {
+     margin-top: 15px;
+     font-weight: bold;
+ }
+
+ .english-translation {
+     margin-top: 10px;
+     padding: 10px;
+     background-color: #e8f4f8;
+     border-radius: 5px;
+     font-style: italic;
+     color: #333;
+     min-height: 20px;
+     display: none;
+ }
+
+ .audio-container {
+     position: relative;
+     margin-top: 20px;
+     width: 100%;
+     display: none;
+     background-color: #f0f0f0;
+     border-radius: 8px;
+     box-shadow: 0 0 8px rgba(0, 0, 0, 0.1);
+ }
+
+
+ .audio-player {
+     width: 100%;
+     display: block;
+ }
+
+ .close-audio {
+    position: absolute;
+    bottom: 35px;
+    right: -10px;
+    background-color: transparent;
+    color: red;
+    border: none;
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    cursor: pointer;
+    font-size: 42px;
+    font-weight: bold;
+    line-height: 36px;
+    text-align: center;
+    z-index: 10;
+    transition: background-color 0.2s ease;
+}
