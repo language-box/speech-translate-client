@@ -1,7 +1,5 @@
 // API Configuration - automatically detects environment
-const API_BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    ? 'http://127.0.0.1:5000'  // Local development
-    : 'https://speech-translate-app-cuvh.onrender.com';  // Production backend URL
+const API_BASE_URL = 'https://speech-translate-app-cuvh.onrender.com';
 
 // Warn if API URL is still placeholder
 if (API_BASE_URL.includes('your-backend-url')) {

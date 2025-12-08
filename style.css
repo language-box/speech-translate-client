@@ -262,12 +262,10 @@ button:disabled {
     }
 
     .close-audio {
-        width: 28px;
-        height: 28px;
-        font-size: 20px;
-        line-height: 24px;
-        top: 3px;
-        right: 3px;
+        height: 10px;
+        top: -22px;
+        right: -13px;
+        padding: 0px;
     }
 
     .download-btn {
