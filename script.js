@@ -1,129 +1,288 @@
-// API Configuration - automatically detects environment
-const API_BASE_URL = 'https://speech-translate-app-cuvh.onrender.com';
+// Backend WebSocket URL - automatically detects environment
+const BACKEND_WS_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'ws://localhost:3000/ws'
+    : 'wss://your-backend-url/ws'; // TODO: update once the Node backend is deployed
 
-// Warn if API URL is still placeholder
-if (API_BASE_URL.includes('your-backend-url')) {
-    console.error('⚠️ API_BASE_URL is not configured! Please update script.js with your backend URL.');
-}
-
-let mediaRecorder;
-let audioChunks = [];
-
-const recordBtn = document.getElementById('recordBtn');
-const stopBtn = document.getElementById('stopBtn');
+const micBtn = document.getElementById('micBtn');
+const waveform = document.getElementById('waveform');
 const status = document.getElementById('status');
 const audioElement = document.getElementById('player');
-const audioContainer = document.getElementById('audioContainer');
-const closeAudioBtn = document.getElementById('closeAudio');
+const sourceLangSelect = document.getElementById('sourceLang');
 const targetLangSelect = document.getElementById('targetLang');
-const englishTranslationDiv = document.getElementById('englishTranslation');
+const swapLangsBtn = document.getElementById('swapLangs');
+const conversationEl = document.getElementById('conversation');
+const conversationEmptyEl = document.getElementById('conversationEmpty');
+const audioStatusEl = document.getElementById('audioStatus');
+const audioStatusTextEl = document.getElementById('audioStatusText');
+const playAudioBtn = document.getElementById('playAudioBtn');
 
-// Note: Languages are now hardcoded in HTML for simplicity
-// You can still load from API if needed, but basic languages are already in the select elements
+const PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>';
+const PAUSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/></svg>';
+playAudioBtn.innerHTML = PLAY_ICON;
 
+const TRANSLATION_TIMEOUT_MS = 10000;
 
-recordBtn.onclick = async () => {
-    audioChunks = [];
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.start();
-    status.textContent = '🔴 Recording...';
+let ws = null;
+let mediaRecorder = null;
+let stream = null;
+let isRecording = false;
+let lastAudioUrl = null;
+let isPlaying = false;
+let pendingIdleMessage = null;
 
-    mediaRecorder.ondataavailable = e => {
-        if (e.data.size > 0) audioChunks.push(e.data);
-    };
+let sourceLangLabelText = '';
+let targetLangLabelText = '';
+let translationEnabled = false;
+let currentOriginalBubble = null;
+let pendingTranslationQueue = [];
 
-    recordBtn.disabled = true;
-    stopBtn.disabled = false;
+const audioQueue = [];
+let isQueuePlaying = false;
+
+function playNextInQueue() {
+    if (isQueuePlaying || audioQueue.length === 0) return;
+    isQueuePlaying = true;
+    const url = audioQueue.shift();
+    lastAudioUrl = url;
+    audioElement.src = url;
+    playAudioBtn.disabled = false;
+    audioElement.play();
+}
+
+function enqueueTranslationAudio(base64, mimeType) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    audioQueue.push(URL.createObjectURL(new Blob([bytes], { type: mimeType })));
+    audioStatusEl.classList.add('active');
+    audioStatusTextEl.textContent = 'Playing translation audio';
+    playNextInQueue();
+}
+
+swapLangsBtn.onclick = () => {
+    const tmp = sourceLangSelect.value;
+    sourceLangSelect.value = targetLangSelect.value;
+    targetLangSelect.value = tmp;
 };
 
+function createBubble(kind, labelText) {
+    conversationEmptyEl.style.display = 'none';
+    const bubble = document.createElement('div');
+    bubble.className = `bubble bubble-${kind}`;
+    const label = document.createElement('span');
+    label.className = 'bubble-label';
+    label.textContent = labelText;
+    const p = document.createElement('p');
+    bubble.appendChild(label);
+    bubble.appendChild(p);
+    conversationEl.appendChild(bubble);
+    conversationEl.scrollTop = conversationEl.scrollHeight;
+    return { bubble, textEl: p };
+}
 
-stopBtn.onclick = async () => {
-    mediaRecorder.stop();
-    status.textContent = '⏳ Processing...';
+function createPendingTranslationBubble() {
+    const entry = createBubble('translation', `TRANSLATION · ${targetLangLabelText}`);
+    entry.bubble.classList.add('bubble-pending');
+    entry.textEl.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+    entry.timeoutId = setTimeout(() => {
+        entry.bubble.classList.remove('bubble-pending');
+        entry.textEl.textContent = 'Translation unavailable';
+    }, TRANSLATION_TIMEOUT_MS);
+    return entry;
+}
 
-    mediaRecorder.onstop = async () => {
-        const blob = new Blob(audioChunks, { type: 'audio/wav' });
-        const formData = new FormData();
-        formData.append('input_audio', blob, 'recording.wav');
+function resetConversation() {
+    conversationEl.querySelectorAll('.bubble').forEach((el) => el.remove());
+    conversationEmptyEl.style.display = '';
+    currentOriginalBubble = null;
+    pendingTranslationQueue.forEach((entry) => clearTimeout(entry.timeoutId));
+    pendingTranslationQueue = [];
+}
 
-        const sourceLang = document.getElementById('sourceLang').value;
-        const targetLang = document.getElementById('targetLang').value;
-
-        formData.append('source_lang', sourceLang);
-        formData.append('target_lang', targetLang);
-
-        try {
-            const apiUrl = `${API_BASE_URL}/translate`;
-            console.log('🌐 Calling API:', apiUrl);
-            console.log('📤 Sending data:', { sourceLang, targetLang, audioSize: blob.size });
-            
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                body: formData,
-            });
-
-            console.log('📥 Response status:', response.status, response.statusText);
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('❌ API Error:', errorText);
-                throw new Error(`Translation failed: ${response.status} ${response.statusText}`);
-            }
-
-            const data = await response.json();
-            
-            // Decode base64 audio
-            const audioBytes = atob(data.audio);
-            const audioArray = new Uint8Array(audioBytes.length);
-            for (let i = 0; i < audioBytes.length; i++) {
-                audioArray[i] = audioBytes.charCodeAt(i);
-            }
-            const audioBlob = new Blob([audioArray], { type: data.mimetype });
-            const audioUrl = URL.createObjectURL(audioBlob);
-            
-            // Set the audio player source and play
-            audioElement.src = audioUrl;
-            audioContainer.style.display = 'block';
-            audioElement.play();
-
-            // Display English translation if available
-            if (data.english_translation) {
-                // Decode HTML entities (e.g., &#39; -> ')
-                const textarea = document.createElement('textarea');
-                textarea.innerHTML = data.english_translation;
-                const decodedText = textarea.value;
-                englishTranslationDiv.textContent = `English: "${decodedText}"`;
-                englishTranslationDiv.style.display = 'block';
-                status.textContent = '✅ Translation complete! Play audio...';
-            } else {
-                englishTranslationDiv.style.display = 'none';
-                status.textContent = '✅ Translation complete! Play audio...';
-            }
-        } catch (err) {
-            console.error('❌ Full error:', err);
-            console.error('❌ Error message:', err.message);
-            console.error('❌ Error stack:', err.stack);
-            
-            let errorMsg = '❌ Error during translation.';
-            if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-                errorMsg = '❌ Network error: Cannot reach backend. Check API URL and CORS settings.';
-            } else if (err.message) {
-                errorMsg = `❌ ${err.message}`;
-            }
-            status.textContent = errorMsg;
-        }
-
-        recordBtn.disabled = false;
-        stopBtn.disabled = true;
-    };
-};
-
-closeAudioBtn.onclick = () => {
+function resetPanels() {
+    resetConversation();
+    playAudioBtn.disabled = true;
+    playAudioBtn.innerHTML = PLAY_ICON;
+    audioStatusEl.classList.remove('active');
+    audioStatusTextEl.textContent = '';
+    isPlaying = false;
     audioElement.pause();
     audioElement.src = '';
-    audioContainer.style.display = 'none';
-    englishTranslationDiv.style.display = 'none';
-    englishTranslationDiv.textContent = '';
-    status.textContent = '🔴 Ready to record';
+}
+
+function setIdleUi(message = 'Ready to record') {
+    isRecording = false;
+    micBtn.disabled = false;
+    micBtn.classList.remove('recording');
+    micBtn.setAttribute('aria-label', 'Start recording');
+    waveform.classList.remove('recording');
+    sourceLangSelect.disabled = false;
+    targetLangSelect.disabled = false;
+    swapLangsBtn.disabled = false;
+    status.textContent = message;
+}
+
+micBtn.onclick = async () => {
+    if (!isRecording) {
+        await startSession();
+    } else {
+        stopSession();
+    }
+};
+
+async function startSession() {
+    resetPanels();
+    sourceLangLabelText = sourceLangSelect.selectedOptions[0].textContent.toUpperCase();
+    targetLangLabelText = targetLangSelect.selectedOptions[0].textContent.toUpperCase();
+    translationEnabled = sourceLangSelect.value !== targetLangSelect.value;
+
+    micBtn.disabled = true;
+    sourceLangSelect.disabled = true;
+    targetLangSelect.disabled = true;
+    swapLangsBtn.disabled = true;
+    status.textContent = 'Requesting microphone access...';
+
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+        status.textContent = 'Microphone access denied.';
+        micBtn.disabled = false;
+        sourceLangSelect.disabled = false;
+        targetLangSelect.disabled = false;
+        swapLangsBtn.disabled = false;
+        return;
+    }
+
+    ws = new WebSocket(BACKEND_WS_URL);
+
+    ws.onopen = () => {
+        ws.send(JSON.stringify({
+            type: 'start',
+            language: sourceLangSelect.value,
+            targetLanguage: targetLangSelect.value,
+        }));
+    };
+
+    ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+
+        if (message.type === 'ready') {
+            isRecording = true;
+            micBtn.disabled = false;
+            micBtn.classList.add('recording');
+            micBtn.setAttribute('aria-label', 'Stop recording');
+            waveform.classList.add('recording');
+            status.textContent = 'Listening...';
+
+            mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+                    ws.send(e.data);
+                }
+            };
+            mediaRecorder.start(250);
+            return;
+        }
+
+        if (message.type === 'transcript') {
+            if (!currentOriginalBubble) {
+                currentOriginalBubble = createBubble('original', `ORIGINAL · ${sourceLangLabelText}`);
+            }
+            currentOriginalBubble.textEl.textContent = message.text;
+            conversationEl.scrollTop = conversationEl.scrollHeight;
+
+            if (message.isFinal) {
+                currentOriginalBubble = null;
+                if (translationEnabled) {
+                    pendingTranslationQueue.push(createPendingTranslationBubble());
+                }
+            }
+            return;
+        }
+
+        if (message.type === 'translation') {
+            const pending = pendingTranslationQueue.shift();
+            if (pending) {
+                clearTimeout(pending.timeoutId);
+                pending.bubble.classList.remove('bubble-pending');
+                pending.textEl.textContent = message.text;
+                conversationEl.scrollTop = conversationEl.scrollHeight;
+            }
+            return;
+        }
+
+        if (message.type === 'translationAudio') {
+            enqueueTranslationAudio(message.audioBase64, message.mimeType);
+            return;
+        }
+
+        if (message.type === 'prompt') {
+            status.textContent = message.text;
+            if (message.audioBase64) enqueueTranslationAudio(message.audioBase64, message.mimeType);
+            return;
+        }
+
+        if (message.type === 'closed') {
+            pendingIdleMessage = 'Session ended due to inactivity.';
+            return;
+        }
+
+        if (message.type === 'error') {
+            status.textContent = `Error: ${message.message}`;
+            stopSession();
+        }
+    };
+
+    ws.onclose = () => {
+        ws = null;
+        setIdleUi(pendingIdleMessage || undefined);
+        pendingIdleMessage = null;
+    };
+}
+
+function stopSession() {
+    mediaRecorder?.stop();
+    stream?.getTracks().forEach((track) => track.stop());
+    mediaRecorder = null;
+    stream = null;
+
+    if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'stop' }));
+        ws.close();
+    } else {
+        setIdleUi();
+    }
+}
+
+playAudioBtn.onclick = () => {
+    if (!lastAudioUrl) return;
+
+    if (isPlaying) {
+        audioElement.pause();
+        return;
+    }
+
+    audioElement.play();
+};
+
+audioElement.onplay = () => {
+    isPlaying = true;
+    playAudioBtn.innerHTML = PAUSE_ICON;
+};
+
+audioElement.onpause = () => {
+    isPlaying = false;
+    playAudioBtn.innerHTML = PLAY_ICON;
+};
+
+audioElement.onended = () => {
+    isPlaying = false;
+    playAudioBtn.innerHTML = PLAY_ICON;
+    URL.revokeObjectURL(lastAudioUrl);
+    isQueuePlaying = false;
+    if (audioQueue.length === 0) {
+        audioStatusEl.classList.remove('active');
+        audioStatusTextEl.textContent = '';
+    }
+    playNextInQueue();
 };

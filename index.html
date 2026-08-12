@@ -4,80 +4,145 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Speech-to-Speech Translator</title>
+    <title>Speak Any Language. Be Understood Everywhere.</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Manrope:wght@400;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
-    <div class="container">
-        <h1>🎤 Speech Translator</h1>
+    <div class="glow glow-hero" aria-hidden="true"></div>
 
-        <div class="lang-select">
-            <div class="lang-group">
-                <label>From:</label>
-                <select id="sourceLang">
-                    <option value="en">English</option>
-                    <option value="hi">Hindi</option>
-                    <option value="te">Telugu</option>
-                    <option value="ta">Tamil</option>
-                    <option value="kn">Kannada</option>
-                    <option value="ml">Malayalam</option>
-                    <option value="gu">Gujarati</option>
-                    <option value="pa">Punjabi</option>
-                    <option value="bn">Bengali</option>
-                    <option value="mr">Marathi</option>
-                    <option value="ur">Urdu</option>
-                    <option value="es">Spanish</option>
-                    <option value="fr">French</option>
-                    <option value="de">German</option>
-                    <option value="it">Italian</option>
-                    <option value="pt">Portuguese</option>
-                    <option value="ru">Russian</option>
-                    <option value="ja">Japanese</option>
-                    <option value="ko">Korean</option>
-                    <option value="zh">Chinese</option>
-                    <option value="ar">Arabic</option>
-                </select>
+    <header class="nav">
+        <div class="nav-logo">Language Translate</div>
+        <nav class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#pricing">Pricing</a>
+            <a href="#about">About us</a>
+        </nav>
+    </header>
+
+    <main class="hero">
+        <h1 class="hero-title">Speak Any Language.<br>Be Understood Everywhere.</h1>
+        <p class="hero-sub">Speak naturally and get instant translations in over 100 languages.</p>
+
+        <section class="translator-card">
+            <div class="lang-row">
+                <div class="lang-pill">
+                    <select id="sourceLang">
+                        <option value="en">English</option>
+                        <option value="mr">Marathi</option>
+                        <option value="te">Telugu</option>
+                    </select>
+                    <svg class="pill-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                </div>
+
+                <button id="swapLangs" class="swap-btn" aria-label="Swap languages" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M7 7h11l-3-3M17 17H6l3 3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </button>
+
+                <div class="lang-pill">
+                    <select id="targetLang">
+                        <option value="en">English</option>
+                        <option value="mr" selected>Marathi</option>
+                        <option value="te">Telugu</option>
+                    </select>
+                    <svg class="pill-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                </div>
             </div>
-            <div class="lang-group">
-                <label>To:</label>
-                <select id="targetLang">
-                    <option value="en">English</option>
-                    <option value="hi">Hindi</option>
-                    <option value="te">Telugu</option>
-                    <option value="ta">Tamil</option>
-                    <option value="kn">Kannada</option>
-                    <option value="ml">Malayalam</option>
-                    <option value="gu">Gujarati</option>
-                    <option value="pa">Punjabi</option>
-                    <option value="bn">Bengali</option>
-                    <option value="mr">Marathi</option>
-                    <option value="ur">Urdu</option>
-                    <option value="es">Spanish</option>
-                    <option value="fr">French</option>
-                    <option value="de">German</option>
-                    <option value="it">Italian</option>
-                    <option value="pt">Portuguese</option>
-                    <option value="ru">Russian</option>
-                    <option value="ja">Japanese</option>
-                    <option value="ko">Korean</option>
-                    <option value="zh">Chinese</option>
-                    <option value="ar">Arabic</option>
-                </select>
+
+            <div class="divider"></div>
+
+            <div class="conversation" id="conversation">
+                <p class="conversation-empty" id="conversationEmpty">Your conversation will appear here as you speak...</p>
             </div>
+
+            <div class="audio-status" id="audioStatus">
+                <button id="playAudioBtn" class="play-btn" aria-label="Play translated audio" type="button" disabled>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor" /></svg>
+                </button>
+                <span id="audioStatusText" class="audio-status-text"></span>
+            </div>
+
+            <div class="recorder">
+                <div class="waveform" id="waveform">
+                    <span></span><span></span><span></span><span></span><span></span>
+                    <span></span><span></span><span></span><span></span><span></span>
+                    <span></span><span></span><span></span><span></span><span></span>
+                    <span></span><span></span><span></span><span></span><span></span>
+                </div>
+                <button id="micBtn" class="mic-btn" aria-label="Start recording" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" fill="currentColor" /><path d="M19 11a7 7 0 01-14 0M12 18v3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" /></svg>
+                </button>
+            </div>
+
+            <p id="status" class="status">Ready to record</p>
+        </section>
+    </main>
+
+    <section class="stats">
+        <div class="stat">
+            <strong>100+</strong>
+            <span>Languages</span>
+        </div>
+        <div class="stat-text">Real Time<br>Translations</div>
+        <div class="stat">
+            <strong>99%</strong>
+            <span>Accuaracy</span>
+        </div>
+        <div class="stat-text">Secure<br>Conversations</div>
+    </section>
+
+    <section class="features" id="features">
+        <div class="glow glow-features" aria-hidden="true"></div>
+
+        <div class="feature-card">
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z" fill="currentColor" /><path d="M19 11a7 7 0 01-14 0M12 18v3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" /></svg>
+            </div>
+            <h3>Voice Recognition</h3>
+            <p>Capture speech instantly with advanced AI recognition.</p>
         </div>
 
-        <button id="recordBtn">🎙️ Start Recording</button>
-        <button id="stopBtn" disabled>⏹️ Stop & Translate</button>
-
-        <div id="status"></div>
-        <div id="englishTranslation" class="english-translation"></div>
-
-        <div id="audioContainer" class="audio-container">
-            <button id="closeAudio" class="close-audio">×</button>
-            <audio id="player" controls class="audio-player"></audio>
+        <div class="feature-card">
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none" /><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18" stroke="currentColor" stroke-width="2" fill="none" /></svg>
+            </div>
+            <h3>100+ Languages</h3>
+            <p>Translate between the world's most spoken languages.</p>
         </div>
-    </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h11v7H8l-4 4z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round" /><path d="M20 9v7h-4l-4 4v-7" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round" /></svg>
+            </div>
+            <h3>Real-Time Translation</h3>
+            <p>Receive translations in seconds without delays.</p>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h11v7H8l-4 4z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round" /><path d="M20 9v7h-4l-4 4v-7" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round" /></svg>
+            </div>
+            <h3>Continue Conversation</h3>
+            <p>Listen and record a continuous conversation.</p>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="footer-main">
+            <h2>Speak Freely anywhere</h2>
+            <p class="footer-tagline">Speak Freely on the go</p>
+            <hr>
+            <p class="footer-brand">Language Translate</p>
+            <p class="footer-copy">2026 &copy; Language Translate. All rights reserved</p>
+        </div>
+    </footer>
+
+    <audio id="player" class="hidden-audio"></audio>
 
     <script src="script.js"></script>
 </body>
