@@ -1,7 +1,7 @@
 // Backend WebSocket URL - automatically detects environment
 const BACKEND_WS_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    ? 'ws://localhost:3000/ws'
-    : 'wss://your-backend-url/ws'; // TODO: update once the Node backend is deployed
+    ? 'ws://localhost:8080/ws'
+    : 'wss://speech-translate-viv.fly.dev/ws';
 
 const micBtn = document.getElementById('micBtn');
 const waveform = document.getElementById('waveform');
