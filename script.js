@@ -40,6 +40,7 @@ let pendingTranslationQueue = [];
 const audioQueue = [];
 let isQueuePlaying = false;
 const translationEntriesById = new Map();
+const conversationEntriesByUtteranceId = new Map();
 const historyAudioUrls = new Set();
 
 function playNextInQueue() {
@@ -128,6 +129,54 @@ function createPendingTranslationBubble() {
     return entry;
 }
 
+function createUtteranceEntry() {
+    conversationEmptyEl.style.display = 'none';
+    let transcriptBox = conversationEl.querySelector('.conversation-entry');
+    if (!transcriptBox) {
+        transcriptBox = document.createElement('div');
+        transcriptBox.className = 'conversation-entry';
+        conversationEl.appendChild(transcriptBox);
+    }
+
+    const bubble = document.createElement('div');
+    bubble.className = 'utterance-entry';
+
+    const originalLabel = document.createElement('span');
+    originalLabel.className = 'bubble-label';
+    originalLabel.textContent = `ORIGINAL · ${sourceLangLabelText}`;
+    const originalTextEl = document.createElement('p');
+    originalTextEl.className = 'utterance-original-text';
+    const originalRow = document.createElement('div');
+    originalRow.className = 'utterance-original';
+    originalRow.appendChild(originalLabel);
+    originalRow.appendChild(originalTextEl);
+
+    const translationLabel = document.createElement('span');
+    translationLabel.className = 'bubble-label';
+    translationLabel.textContent = `TRANSLATION · ${targetLangLabelText}`;
+    const translationTextEl = document.createElement('p');
+    translationTextEl.className = 'utterance-translation-text';
+    translationTextEl.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+    const replayBtn = document.createElement('button');
+    replayBtn.className = 'translation-replay';
+    replayBtn.type = 'button';
+    replayBtn.disabled = true;
+    replayBtn.setAttribute('aria-label', 'Replay translation');
+    replayBtn.title = 'Replay translation';
+    replayBtn.innerHTML = SPEAKER_ICON;
+    const translationRow = document.createElement('div');
+    translationRow.className = 'utterance-translation';
+    translationRow.appendChild(translationLabel);
+    translationRow.appendChild(translationTextEl);
+    translationRow.appendChild(replayBtn);
+
+    bubble.appendChild(originalRow);
+    bubble.appendChild(translationRow);
+    transcriptBox.appendChild(bubble);
+    conversationEl.scrollTop = conversationEl.scrollHeight;
+    return { bubble, originalTextEl, translationTextEl, replayBtn, translationRow };
+}
+
 function resetConversation() {
     conversationEl.querySelectorAll('.bubble').forEach((el) => el.remove());
     conversationEmptyEl.style.display = '';
@@ -135,6 +184,7 @@ function resetConversation() {
     pendingTranslationQueue.forEach((entry) => clearTimeout(entry.timeoutId));
     pendingTranslationQueue = [];
     translationEntriesById.clear();
+    conversationEntriesByUtteranceId.clear();
     historyAudioUrls.forEach((url) => URL.revokeObjectURL(url));
     historyAudioUrls.clear();
 }
@@ -247,28 +297,38 @@ async function startSession() {
 
         if (message.type === 'transcript') {
             if (!currentOriginalBubble) {
-                currentOriginalBubble = createBubble('original', `ORIGINAL · ${sourceLangLabelText}`);
+                currentOriginalBubble = createUtteranceEntry();
             }
-            currentOriginalBubble.textEl.textContent = message.text;
+            currentOriginalBubble.originalTextEl.textContent = message.text;
+            if (message.utteranceId) {
+                conversationEntriesByUtteranceId.set(message.utteranceId, currentOriginalBubble);
+            }
             conversationEl.scrollTop = conversationEl.scrollHeight;
 
             if (message.isFinal) {
+                const entry = currentOriginalBubble;
+                entry.translationRow.classList.add('translation-pending');
+                entry.timeoutId = setTimeout(() => {
+                    entry.translationRow.classList.remove('translation-pending');
+                    entry.translationTextEl.textContent = 'Translation unavailable';
+                }, TRANSLATION_TIMEOUT_MS);
+                pendingTranslationQueue.push(entry);
                 currentOriginalBubble = null;
-                if (translationEnabled) {
-                    pendingTranslationQueue.push(createPendingTranslationBubble());
-                }
             }
             return;
         }
 
         if (message.type === 'translation') {
-            const pending = pendingTranslationQueue.shift();
-            if (pending) {
-                clearTimeout(pending.timeoutId);
-                pending.bubble.classList.remove('bubble-pending');
-                pending.textEl.textContent = message.text;
-                pending.translationId = message.translationId;
-                if (message.translationId) translationEntriesById.set(message.translationId, pending);
+            const entry = conversationEntriesByUtteranceId.get(message.utteranceId) || pendingTranslationQueue[0];
+            if (entry) {
+                entry.translationTextEl.textContent = message.text;
+                entry.translationRow.classList.remove('translation-pending');
+                if (message.isFinal !== false) {
+                    clearTimeout(entry.timeoutId);
+                    pendingTranslationQueue = pendingTranslationQueue.filter((item) => item !== entry);
+                    entry.translationId = message.translationId;
+                    if (message.translationId) translationEntriesById.set(message.translationId, entry);
+                }
                 conversationEl.scrollTop = conversationEl.scrollHeight;
             }
             return;
@@ -286,7 +346,9 @@ async function startSession() {
         }
 
         if (message.type === 'closed') {
-            pendingIdleMessage = 'Session ended due to inactivity.';
+            pendingIdleMessage = message.reason === 'duration'
+                ? 'Three-minute recording window ended.'
+                : 'Session ended due to inactivity.';
             return;
         }
 

@@ -316,6 +316,58 @@ body {
     animation-delay: 0.3s;
 }
 
+.conversation-entry {
+    padding: 4px 18px;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.utterance-entry + .utterance-entry {
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.utterance-original,
+.utterance-translation {
+    padding: 14px 18px;
+}
+
+.utterance-original {
+    padding-top: 14px;
+}
+
+.utterance-translation {
+    padding-bottom: 14px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 16px;
+    align-items: end;
+}
+
+.utterance-original .bubble-label,
+.utterance-translation .bubble-label {
+    grid-column: 1 / -1;
+    margin-bottom: 2px;
+}
+
+.utterance-original p,
+.utterance-translation p {
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.4;
+    color: #fff;
+    word-wrap: break-word;
+}
+
+.utterance-translation-text {
+    min-height: 22px;
+}
+
+.translation-pending .utterance-translation-text {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
 @keyframes dot-bounce {
 
     0%,
