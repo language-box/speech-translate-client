@@ -43,6 +43,18 @@ let isQueuePlaying = false;
 const translationEntriesById = new Map();
 const conversationEntriesByUtteranceId = new Map();
 const historyAudioUrls = new Set();
+function normalizeTranscriptText(text) {
+    return text
+        .replace(/\b(?:uh+|um+|erm+|hmm+|mm+|ah+)\b[,.!?]?\s*/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function appendTranscriptText(existingText, nextText) {
+    if (!existingText) return nextText;
+    if (/^[,.!?;:]/.test(nextText)) return `${existingText}${nextText}`;
+    return `${existingText} ${nextText}`;
+}
 
 function playNextInQueue() {
     if (isQueuePlaying || audioQueue.length === 0) return;
@@ -150,15 +162,22 @@ function createUtteranceEntry() {
         translationBubble.replaceChildren();
     }
 
-    const originalLabel = document.createElement('span');
-    originalLabel.className = 'bubble-label';
-    const originalTextEl = document.createElement('p');
-    originalTextEl.className = 'utterance-original-text';
-    const originalRow = document.createElement('div');
-    originalRow.className = 'utterance-original';
-    originalLabel.textContent = `ORIGINAL · ${sourceLangLabelText}`;
-    originalRow.appendChild(originalLabel);
-    originalRow.appendChild(originalTextEl);
+    let originalRow = currentConversationWindow.querySelector('.utterance-original');
+    let originalTextEl = currentConversationWindow.querySelector('.utterance-original-text');
+    if (!originalRow) {
+        const originalLabel = document.createElement('span');
+        originalLabel.className = 'bubble-label';
+        originalLabel.textContent = `ORIGINAL · ${sourceLangLabelText}`;
+        originalTextEl = document.createElement('p');
+        originalTextEl.className = 'utterance-original-text';
+        originalRow = document.createElement('div');
+        originalRow.className = 'utterance-original';
+        originalRow.appendChild(originalLabel);
+        originalRow.appendChild(originalTextEl);
+        originalBubble.appendChild(originalRow);
+        currentConversationWindow.originalText = '';
+        currentConversationWindow.interimText = '';
+    }
 
     const translationLabel = document.createElement('span');
     translationLabel.className = 'bubble-label';
@@ -179,10 +198,16 @@ function createUtteranceEntry() {
     translationRow.appendChild(translationTextEl);
     translationRow.appendChild(replayBtn);
 
-    originalBubble.appendChild(originalRow);
     translationBubble.appendChild(translationRow);
     conversationEl.scrollTop = conversationEl.scrollHeight;
-    return { bubble: translationBubble, originalTextEl, translationTextEl, replayBtn, translationRow };
+    return {
+        bubble: translationBubble,
+        originalTextEl,
+        translationTextEl,
+        replayBtn,
+        translationRow,
+        conversationWindow: currentConversationWindow,
+    };
 }
 
 function resetConversation() {
@@ -311,10 +336,22 @@ async function startSession() {
         }
 
         if (message.type === 'transcript') {
+            const transcriptText = normalizeTranscriptText(message.text || '');
+            if (!transcriptText) return;
             if (!currentOriginalBubble) {
                 currentOriginalBubble = createUtteranceEntry();
             }
-            currentOriginalBubble.originalTextEl.textContent = message.text;
+            const conversationWindow = currentOriginalBubble.conversationWindow;
+            if (message.isFinal) {
+                conversationWindow.originalText = appendTranscriptText(conversationWindow.originalText, transcriptText);
+                conversationWindow.interimText = '';
+            } else {
+                conversationWindow.interimText = transcriptText;
+            }
+            currentOriginalBubble.originalTextEl.textContent = appendTranscriptText(
+                conversationWindow.originalText,
+                conversationWindow.interimText,
+            );
             if (message.utteranceId) {
                 conversationEntriesByUtteranceId.set(message.utteranceId, currentOriginalBubble);
             }
