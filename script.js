@@ -22,7 +22,6 @@ const SPEAKER_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v
 playAudioBtn.innerHTML = PLAY_ICON;
 
 const TRANSLATION_TIMEOUT_MS = 10000;
-const SESSION_REFRESH_MS = 175000;
 
 let ws = null;
 let mediaRecorder = null;
@@ -31,8 +30,6 @@ let isRecording = false;
 let lastAudioUrl = null;
 let isPlaying = false;
 let pendingIdleMessage = null;
-let sessionRefreshTimer = null;
-let autoReconnect = false;
 
 let sourceLangLabelText = '';
 let targetLangLabelText = '';
@@ -270,8 +267,8 @@ micBtn.onclick = async () => {
     }
 };
 
-async function startSession(reuseStream = false) {
-    if (!reuseStream) resetPanels();
+async function startSession() {
+    resetPanels();
     sourceLangLabelText = sourceLangSelect.selectedOptions[0].textContent.toUpperCase();
     targetLangLabelText = targetLangSelect.selectedOptions[0].textContent.toUpperCase();
     translationEnabled = sourceLangSelect.value !== targetLangSelect.value;
@@ -280,24 +277,22 @@ async function startSession(reuseStream = false) {
     sourceLangSelect.disabled = true;
     targetLangSelect.disabled = true;
     swapLangsBtn.disabled = true;
-    status.textContent = reuseStream ? 'Continuing conversation...' : 'Requesting microphone access...';
+    status.textContent = 'Requesting microphone access...';
 
-    if (!reuseStream && !navigator.mediaDevices?.getUserMedia) {
+    if (!navigator.mediaDevices?.getUserMedia) {
         setIdleUi('Microphone access requires a secure browser context.');
         return;
     }
 
-    if (!reuseStream) {
-        try {
-            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        } catch (err) {
-            status.textContent = 'Microphone access denied.';
-            micBtn.disabled = false;
-            sourceLangSelect.disabled = false;
-            targetLangSelect.disabled = false;
-            swapLangsBtn.disabled = false;
-            return;
-        }
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+        status.textContent = 'Microphone access denied.';
+        micBtn.disabled = false;
+        sourceLangSelect.disabled = false;
+        targetLangSelect.disabled = false;
+        swapLangsBtn.disabled = false;
+        return;
     }
 
     try {
@@ -346,14 +341,6 @@ async function startSession(reuseStream = false) {
                 };
                 mediaRecorder.start(250);
             }
-            clearTimeout(sessionRefreshTimer);
-            sessionRefreshTimer = setTimeout(() => {
-                if (isRecording && ws?.readyState === WebSocket.OPEN) {
-                    autoReconnect = true;
-                    status.textContent = 'Continuing conversation...';
-                    ws.close();
-                }
-            }, SESSION_REFRESH_MS);
             return;
         }
 
@@ -436,12 +423,7 @@ async function startSession(reuseStream = false) {
         }
 
         if (message.type === 'closed') {
-            if (message.reason === 'duration') {
-                autoReconnect = true;
-                status.textContent = 'Continuing conversation...';
-            } else {
-                pendingIdleMessage = 'Session ended due to inactivity.';
-            }
+            pendingIdleMessage = 'Session ended due to inactivity.';
             return;
         }
 
@@ -452,16 +434,6 @@ async function startSession(reuseStream = false) {
     };
 
     ws.onclose = () => {
-        clearTimeout(sessionRefreshTimer);
-        sessionRefreshTimer = null;
-        if (autoReconnect && stream) {
-            autoReconnect = false;
-            currentConversationWindow = null;
-            currentOriginalBubble = null;
-            ws = null;
-            startSession(true);
-            return;
-        }
         if (mediaRecorder) {
             mediaRecorder.stop();
             mediaRecorder = null;
@@ -479,9 +451,6 @@ async function startSession(reuseStream = false) {
 }
 
 function stopSession() {
-    autoReconnect = false;
-    clearTimeout(sessionRefreshTimer);
-    sessionRefreshTimer = null;
     mediaRecorder?.stop();
     stream?.getTracks().forEach((track) => track.stop());
     mediaRecorder = null;
