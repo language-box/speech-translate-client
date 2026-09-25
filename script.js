@@ -35,6 +35,7 @@ let sourceLangLabelText = '';
 let targetLangLabelText = '';
 let translationEnabled = false;
 let currentOriginalBubble = null;
+let currentConversationWindow = null;
 let pendingTranslationQueue = [];
 
 const audioQueue = [];
@@ -92,7 +93,7 @@ swapLangsBtn.onclick = () => {
     targetLangSelect.value = tmp;
 };
 
-function createBubble(kind, labelText) {
+function createBubble(kind, labelText, parent = conversationEl) {
     conversationEmptyEl.style.display = 'none';
     const bubble = document.createElement('div');
     bubble.className = `bubble bubble-${kind}`;
@@ -113,7 +114,7 @@ function createBubble(kind, labelText) {
         replayBtn.innerHTML = SPEAKER_ICON;
         bubble.appendChild(replayBtn);
     }
-    conversationEl.appendChild(bubble);
+    parent.appendChild(bubble);
     conversationEl.scrollTop = conversationEl.scrollHeight;
     return { bubble, textEl: p, replayBtn };
 }
@@ -131,23 +132,31 @@ function createPendingTranslationBubble() {
 
 function createUtteranceEntry() {
     conversationEmptyEl.style.display = 'none';
-    let transcriptBox = conversationEl.querySelector('.conversation-entry');
-    if (!transcriptBox) {
-        transcriptBox = document.createElement('div');
-        transcriptBox.className = 'conversation-entry';
-        conversationEl.appendChild(transcriptBox);
+    if (!currentConversationWindow) {
+        currentConversationWindow = document.createElement('div');
+        currentConversationWindow.className = 'conversation-window';
+        conversationEl.appendChild(currentConversationWindow);
     }
 
-    const bubble = document.createElement('div');
-    bubble.className = 'utterance-entry';
+    let originalBubble = currentConversationWindow.querySelector('.bubble-original');
+    let translationBubble = currentConversationWindow.querySelector('.bubble-translation');
+
+    if (!originalBubble) {
+        originalBubble = createBubble('original', `ORIGINAL · ${sourceLangLabelText}`, currentConversationWindow).bubble;
+        originalBubble.replaceChildren();
+    }
+    if (!translationBubble) {
+        translationBubble = createBubble('translation', `TRANSLATION · ${targetLangLabelText}`, currentConversationWindow).bubble;
+        translationBubble.replaceChildren();
+    }
 
     const originalLabel = document.createElement('span');
     originalLabel.className = 'bubble-label';
-    originalLabel.textContent = `ORIGINAL · ${sourceLangLabelText}`;
     const originalTextEl = document.createElement('p');
     originalTextEl.className = 'utterance-original-text';
     const originalRow = document.createElement('div');
     originalRow.className = 'utterance-original';
+    originalLabel.textContent = `ORIGINAL · ${sourceLangLabelText}`;
     originalRow.appendChild(originalLabel);
     originalRow.appendChild(originalTextEl);
 
@@ -170,16 +179,17 @@ function createUtteranceEntry() {
     translationRow.appendChild(translationTextEl);
     translationRow.appendChild(replayBtn);
 
-    bubble.appendChild(originalRow);
-    bubble.appendChild(translationRow);
-    transcriptBox.appendChild(bubble);
+    originalBubble.appendChild(originalRow);
+    translationBubble.appendChild(translationRow);
     conversationEl.scrollTop = conversationEl.scrollHeight;
-    return { bubble, originalTextEl, translationTextEl, replayBtn, translationRow };
+    return { bubble: translationBubble, originalTextEl, translationTextEl, replayBtn, translationRow };
 }
 
 function resetConversation() {
-    conversationEl.querySelectorAll('.bubble').forEach((el) => el.remove());
+    conversationEl.querySelectorAll('.conversation-window').forEach((el) => el.remove());
+    conversationEl.querySelectorAll(':scope > .bubble').forEach((el) => el.remove());
     conversationEmptyEl.style.display = '';
+    currentConversationWindow = null;
     currentOriginalBubble = null;
     pendingTranslationQueue.forEach((entry) => clearTimeout(entry.timeoutId));
     pendingTranslationQueue = [];
@@ -190,7 +200,12 @@ function resetConversation() {
 }
 
 function resetPanels() {
-    resetConversation();
+    currentConversationWindow = null;
+    currentOriginalBubble = null;
+    pendingTranslationQueue.forEach((entry) => clearTimeout(entry.timeoutId));
+    pendingTranslationQueue = [];
+    translationEntriesById.clear();
+    conversationEntriesByUtteranceId.clear();
     playAudioBtn.disabled = true;
     playAudioBtn.innerHTML = PLAY_ICON;
     audioStatusEl.classList.remove('active');

@@ -244,6 +244,11 @@ body {
     flex: 1;
 }
 
+.conversation .bubble-original,
+.conversation .bubble-translation {
+    display: block;
+}
+
 .translation-replay {
     flex: none;
     width: 32px;
@@ -280,6 +285,12 @@ body {
     display: flex;
     flex-direction: column;
     padding-right: 4px;
+}
+
+.conversation-window + .conversation-window {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
 }
 
 .conversation .bubble {
