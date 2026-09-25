@@ -18,6 +18,7 @@ const playAudioBtn = document.getElementById('playAudioBtn');
 
 const PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>';
 const PAUSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/></svg>';
+const SPEAKER_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path d="M16 9.5a4 4 0 010 5M18.5 7a7.5 7.5 0 010 10" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>';
 playAudioBtn.innerHTML = PLAY_ICON;
 
 const TRANSLATION_TIMEOUT_MS = 10000;
@@ -38,6 +39,8 @@ let pendingTranslationQueue = [];
 
 const audioQueue = [];
 let isQueuePlaying = false;
+const translationEntriesById = new Map();
+const historyAudioUrls = new Set();
 
 function playNextInQueue() {
     if (isQueuePlaying || audioQueue.length === 0) return;
@@ -49,11 +52,34 @@ function playNextInQueue() {
     audioElement.play();
 }
 
-function enqueueTranslationAudio(base64, mimeType) {
+function playHistoryAudio(entry) {
+    if (entry.replayAudio && !entry.replayAudio.paused) {
+        entry.replayAudio.pause();
+        return;
+    }
+
+    entry.replayAudio = new Audio(entry.replayUrl);
+    entry.replayAudio.onplay = () => entry.replayBtn.classList.add('playing');
+    entry.replayAudio.onpause = () => entry.replayBtn.classList.remove('playing');
+    entry.replayAudio.onended = () => entry.replayBtn.classList.remove('playing');
+    entry.replayAudio.play().catch(() => entry.replayBtn.classList.remove('playing'));
+}
+
+function enqueueTranslationAudio(base64, mimeType, translationId) {
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    audioQueue.push(URL.createObjectURL(new Blob([bytes], { type: mimeType })));
+    const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+    if (translationId) {
+        const entry = translationEntriesById.get(translationId);
+        if (entry) {
+            entry.replayUrl = url;
+            entry.replayBtn.disabled = false;
+            entry.replayBtn.onclick = () => playHistoryAudio(entry);
+            historyAudioUrls.add(url);
+        }
+    }
+    audioQueue.push(url);
     audioStatusEl.classList.add('active');
     audioStatusTextEl.textContent = 'Playing translation audio';
     playNextInQueue();
@@ -75,9 +101,20 @@ function createBubble(kind, labelText) {
     const p = document.createElement('p');
     bubble.appendChild(label);
     bubble.appendChild(p);
+    let replayBtn = null;
+    if (kind === 'translation') {
+        replayBtn = document.createElement('button');
+        replayBtn.className = 'translation-replay';
+        replayBtn.type = 'button';
+        replayBtn.disabled = true;
+        replayBtn.setAttribute('aria-label', 'Replay translation');
+        replayBtn.title = 'Replay translation';
+        replayBtn.innerHTML = SPEAKER_ICON;
+        bubble.appendChild(replayBtn);
+    }
     conversationEl.appendChild(bubble);
     conversationEl.scrollTop = conversationEl.scrollHeight;
-    return { bubble, textEl: p };
+    return { bubble, textEl: p, replayBtn };
 }
 
 function createPendingTranslationBubble() {
@@ -97,6 +134,9 @@ function resetConversation() {
     currentOriginalBubble = null;
     pendingTranslationQueue.forEach((entry) => clearTimeout(entry.timeoutId));
     pendingTranslationQueue = [];
+    translationEntriesById.clear();
+    historyAudioUrls.forEach((url) => URL.revokeObjectURL(url));
+    historyAudioUrls.clear();
 }
 
 function resetPanels() {
@@ -227,13 +267,15 @@ async function startSession() {
                 clearTimeout(pending.timeoutId);
                 pending.bubble.classList.remove('bubble-pending');
                 pending.textEl.textContent = message.text;
+                pending.translationId = message.translationId;
+                if (message.translationId) translationEntriesById.set(message.translationId, pending);
                 conversationEl.scrollTop = conversationEl.scrollHeight;
             }
             return;
         }
 
         if (message.type === 'translationAudio') {
-            enqueueTranslationAudio(message.audioBase64, message.mimeType);
+            enqueueTranslationAudio(message.audioBase64, message.mimeType, message.translationId);
             return;
         }
 
@@ -303,7 +345,7 @@ audioElement.onpause = () => {
 audioElement.onended = () => {
     isPlaying = false;
     playAudioBtn.innerHTML = PLAY_ICON;
-    URL.revokeObjectURL(lastAudioUrl);
+    if (!historyAudioUrls.has(lastAudioUrl)) URL.revokeObjectURL(lastAudioUrl);
     isQueuePlaying = false;
     if (audioQueue.length === 0) {
         audioStatusEl.classList.remove('active');
