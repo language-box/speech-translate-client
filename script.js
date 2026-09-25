@@ -179,26 +179,31 @@ function createUtteranceEntry() {
         currentConversationWindow.interimText = '';
     }
 
-    const translationLabel = document.createElement('span');
-    translationLabel.className = 'bubble-label';
-    translationLabel.textContent = `TRANSLATION · ${targetLangLabelText}`;
-    const translationTextEl = document.createElement('p');
-    translationTextEl.className = 'utterance-translation-text';
-    translationTextEl.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
-    const replayBtn = document.createElement('button');
-    replayBtn.className = 'translation-replay';
-    replayBtn.type = 'button';
-    replayBtn.disabled = true;
-    replayBtn.setAttribute('aria-label', 'Replay translation');
-    replayBtn.title = 'Replay translation';
-    replayBtn.innerHTML = SPEAKER_ICON;
-    const translationRow = document.createElement('div');
-    translationRow.className = 'utterance-translation';
-    translationRow.appendChild(translationLabel);
-    translationRow.appendChild(translationTextEl);
-    translationRow.appendChild(replayBtn);
-
-    translationBubble.appendChild(translationRow);
+    let translationRow = currentConversationWindow.querySelector('.utterance-translation');
+    let translationTextEl = currentConversationWindow.querySelector('.utterance-translation-text');
+    let replayBtn = currentConversationWindow.querySelector('.translation-replay');
+    if (!translationRow) {
+        const translationLabel = document.createElement('span');
+        translationLabel.className = 'bubble-label';
+        translationLabel.textContent = `TRANSLATION · ${targetLangLabelText}`;
+        translationTextEl = document.createElement('p');
+        translationTextEl.className = 'utterance-translation-text';
+        translationTextEl.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+        replayBtn = document.createElement('button');
+        replayBtn.className = 'translation-replay';
+        replayBtn.type = 'button';
+        replayBtn.disabled = true;
+        replayBtn.setAttribute('aria-label', 'Replay translation');
+        replayBtn.title = 'Replay translation';
+        replayBtn.innerHTML = SPEAKER_ICON;
+        translationRow = document.createElement('div');
+        translationRow.className = 'utterance-translation';
+        translationRow.appendChild(translationLabel);
+        translationRow.appendChild(translationTextEl);
+        translationRow.appendChild(replayBtn);
+        translationBubble.appendChild(translationRow);
+        currentConversationWindow.translationText = '';
+    }
     conversationEl.scrollTop = conversationEl.scrollHeight;
     return {
         bubble: translationBubble,
@@ -207,6 +212,7 @@ function createUtteranceEntry() {
         replayBtn,
         translationRow,
         conversationWindow: currentConversationWindow,
+        partialTranslationText: '',
     };
 }
 
@@ -361,8 +367,13 @@ async function startSession() {
                 const entry = currentOriginalBubble;
                 entry.translationRow.classList.add('translation-pending');
                 entry.timeoutId = setTimeout(() => {
-                    entry.translationRow.classList.remove('translation-pending');
-                    entry.translationTextEl.textContent = 'Translation unavailable';
+                    entry.conversationWindow.translationText = appendTranscriptText(
+                        entry.conversationWindow.translationText,
+                        'Translation unavailable',
+                    );
+                    entry.translationTextEl.textContent = entry.conversationWindow.translationText;
+                    pendingTranslationQueue = pendingTranslationQueue.filter((item) => item !== entry);
+                    if (pendingTranslationQueue.length === 0) entry.translationRow.classList.remove('translation-pending');
                 }, TRANSLATION_TIMEOUT_MS);
                 pendingTranslationQueue.push(entry);
                 currentOriginalBubble = null;
@@ -373,14 +384,22 @@ async function startSession() {
         if (message.type === 'translation') {
             const entry = conversationEntriesByUtteranceId.get(message.utteranceId) || pendingTranslationQueue[0];
             if (entry) {
-                entry.translationTextEl.textContent = message.text;
-                entry.translationRow.classList.remove('translation-pending');
+                if (message.isFinal === false) {
+                    entry.partialTranslationText = message.text;
+                    return;
+                }
+                entry.conversationWindow.translationText = appendTranscriptText(
+                    entry.conversationWindow.translationText,
+                    message.text,
+                );
+                entry.translationTextEl.textContent = entry.conversationWindow.translationText;
                 if (message.isFinal !== false) {
                     clearTimeout(entry.timeoutId);
                     pendingTranslationQueue = pendingTranslationQueue.filter((item) => item !== entry);
                     entry.translationId = message.translationId;
                     if (message.translationId) translationEntriesById.set(message.translationId, entry);
                 }
+                if (pendingTranslationQueue.length === 0) entry.translationRow.classList.remove('translation-pending');
                 conversationEl.scrollTop = conversationEl.scrollHeight;
             }
             return;
