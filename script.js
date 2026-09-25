@@ -203,6 +203,7 @@ function createUtteranceEntry() {
         translationRow.appendChild(replayBtn);
         translationBubble.appendChild(translationRow);
         currentConversationWindow.translationText = '';
+        currentConversationWindow.translationUnavailableShown = false;
     }
     conversationEl.scrollTop = conversationEl.scrollHeight;
     return {
@@ -367,11 +368,14 @@ async function startSession() {
                 const entry = currentOriginalBubble;
                 entry.translationRow.classList.add('translation-pending');
                 entry.timeoutId = setTimeout(() => {
-                    entry.conversationWindow.translationText = appendTranscriptText(
-                        entry.conversationWindow.translationText,
-                        'Translation unavailable',
-                    );
-                    entry.translationTextEl.textContent = entry.conversationWindow.translationText;
+                    if (!entry.conversationWindow.translationUnavailableShown) {
+                        entry.conversationWindow.translationText = appendTranscriptText(
+                            entry.conversationWindow.translationText,
+                            'Translation unavailable',
+                        );
+                        entry.translationTextEl.textContent = entry.conversationWindow.translationText;
+                        entry.conversationWindow.translationUnavailableShown = true;
+                    }
                     pendingTranslationQueue = pendingTranslationQueue.filter((item) => item !== entry);
                     if (pendingTranslationQueue.length === 0) entry.translationRow.classList.remove('translation-pending');
                 }, TRANSLATION_TIMEOUT_MS);
