@@ -1,7 +1,7 @@
 // Backend WebSocket URL - automatically detects environment
 const BACKEND_WS_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     ? 'ws://localhost:8080/ws'
-    : 'wss://https://speech-translate-app.fly.dev/ws';
+    : 'wss://speech-translate-app.fly.dev/ws';
 
 const micBtn = document.getElementById('micBtn');
 const waveform = document.getElementById('waveform');
@@ -142,6 +142,11 @@ async function startSession() {
     swapLangsBtn.disabled = true;
     status.textContent = 'Requesting microphone access...';
 
+    if (!navigator.mediaDevices?.getUserMedia) {
+        setIdleUi('Microphone access requires a secure browser context.');
+        return;
+    }
+
     try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
@@ -153,7 +158,14 @@ async function startSession() {
         return;
     }
 
-    ws = new WebSocket(BACKEND_WS_URL);
+    try {
+        ws = new WebSocket(BACKEND_WS_URL);
+    } catch (err) {
+        stream?.getTracks().forEach((track) => track.stop());
+        stream = null;
+        setIdleUi('Unable to connect to translation service.');
+        return;
+    }
 
     ws.onopen = () => {
         ws.send(JSON.stringify({
@@ -174,7 +186,16 @@ async function startSession() {
             waveform.classList.add('recording');
             status.textContent = 'Listening...';
 
-            mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+            const mimeType = 'audio/webm;codecs=opus';
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+                stream?.getTracks().forEach((track) => track.stop());
+                stream = null;
+                setIdleUi('This browser cannot record WebM audio.');
+                ws.close();
+                return;
+            }
+
+            mediaRecorder = new MediaRecorder(stream, { mimeType });
             mediaRecorder.ondataavailable = (e) => {
                 if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) {
                     ws.send(e.data);
@@ -237,6 +258,10 @@ async function startSession() {
         ws = null;
         setIdleUi(pendingIdleMessage || undefined);
         pendingIdleMessage = null;
+    };
+
+    ws.onerror = () => {
+        pendingIdleMessage = 'Unable to connect to translation service.';
     };
 }
 
