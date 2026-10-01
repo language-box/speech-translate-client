@@ -478,9 +478,13 @@ body {
     height: 18px;
 }
 
-.play-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
+/* Same as .clear-btn: this sets display, which outranks the UA stylesheet's
+   [hidden] { display: none }, so the attribute needs an explicit rule. It is
+   hidden rather than disabled because nothing can be replayed until a line has
+   actually been spoken, and on a device with no voice for the target language
+   that never happens. */
+.play-btn[hidden] {
+    display: none;
 }
 
 /* Recorder */

@@ -174,6 +174,14 @@ coupling between them.
   swap, live conversation thread `#conversation`, audio-status/play row with
   the `#clearBtn` "Clear" control, mic button + waveform), stats bar, features
   grid, footer.
+  - **Play button** (`#playAudioBtn`) replays the last spoken translation, and
+    stops playback mid-speech. Hidden until `playNextInQueue()` has actually
+    handed a line to the speech engine, which never happens on a device with
+    no voice for the target language, so it no longer sits there permanently
+    greyed out. Largely redundant with the per-bubble `.translation-replay`
+    buttons; kept as the one obvious stop control for a long queue. With it
+    and the Clear button both hidden and the status text empty, the whole
+    `.audio-status` row collapses to zero height.
   - **Clear button** (added 2026-10-01) wipes the thread and starts a fresh
     session. `resetConversation()` already existed but was never called, so
     the thread accumulated across sessions indefinitely. `clearConversation()`

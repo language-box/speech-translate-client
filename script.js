@@ -168,7 +168,7 @@ function playNextInQueue() {
     isQueuePlaying = true;
     const line = speechQueue.shift();
     lastSpokenLine = line;
-    playAudioBtn.disabled = false;
+    playAudioBtn.hidden = false;
     speak(line, () => {
         isQueuePlaying = false;
         if (speechQueue.length === 0) {
@@ -357,7 +357,7 @@ function resetPanels() {
     pendingTranslationQueue = [];
     translationEntriesById.clear();
     conversationEntriesByUtteranceId.clear();
-    playAudioBtn.disabled = true;
+    playAudioBtn.hidden = true;
     playAudioBtn.innerHTML = PLAY_ICON;
     audioStatusEl.classList.remove('active');
     audioStatusTextEl.textContent = '';
