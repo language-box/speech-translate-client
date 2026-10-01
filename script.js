@@ -1,7 +1,40 @@
-// Backend WebSocket URL - automatically detects environment
-const BACKEND_WS_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    ? 'ws://localhost:8080/ws'
-    : 'wss://speech-translate-app.fly.dev/ws';
+// Backend WebSocket URL. Defaults by hostname, but `?backend=prod` or
+// `?backend=local` overrides it and the choice sticks for the session, so a
+// page served from localhost can be pointed at the deployed backend. Without
+// this there is no way to test a deployment except from the deployed origin.
+const LOCAL_WS_URL = 'ws://localhost:8080/ws';
+const PROD_WS_URL = 'wss://speech-translate-app.fly.dev/ws';
+
+function resolveBackendUrl() {
+    const servedLocally = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    let override = null;
+    try {
+        override = new URLSearchParams(window.location.search).get('backend');
+        if (override) {
+            sessionStorage.setItem('backendOverride', override);
+        } else {
+            override = sessionStorage.getItem('backendOverride');
+        }
+    } catch {
+        // Private mode or blocked storage: fall through to the hostname default.
+    }
+
+    if (override === 'prod') return PROD_WS_URL;
+    if (override === 'local') return LOCAL_WS_URL;
+    return servedLocally ? LOCAL_WS_URL : PROD_WS_URL;
+}
+
+const BACKEND_WS_URL = resolveBackendUrl();
+// Logged because a failed connection is otherwise indistinguishable between
+// "wrong target" and "target is down".
+console.info(`[speech-translate] backend: ${BACKEND_WS_URL}`);
+
+// A file:// page sends `Origin: null`, which the backend's allowlist rejects
+// with a 403. Flag it here rather than letting it look like an outage.
+if (window.location.protocol === 'file:') {
+    console.warn('[speech-translate] Opened from file://. The backend rejects Origin: null — serve this over http instead, e.g. `python3 -m http.server 8124`.');
+}
 
 const micBtn = document.getElementById('micBtn');
 const waveform = document.getElementById('waveform');
@@ -324,6 +357,16 @@ function resetPanels() {
     cancelSpeech();
 }
 
+function connectionFailureMessage() {
+    if (window.location.protocol === 'file:') {
+        return 'Serve this page over http instead of opening the file directly.';
+    }
+    if (BACKEND_WS_URL === LOCAL_WS_URL) {
+        return 'No backend at localhost:8080. Start it, or add ?backend=prod to use the deployed one.';
+    }
+    return 'Cannot reach the deployed backend at speech-translate-app.fly.dev.';
+}
+
 function setIdleUi(message = 'Ready to record') {
     isRecording = false;
     micBtn.disabled = false;
@@ -377,7 +420,7 @@ async function startSession() {
     } catch (err) {
         stream?.getTracks().forEach((track) => track.stop());
         stream = null;
-        setIdleUi('Unable to connect to translation service.');
+        setIdleUi(connectionFailureMessage());
         return;
     }
 
@@ -519,7 +562,7 @@ async function startSession() {
     };
 
     ws.onerror = () => {
-        pendingIdleMessage = 'Unable to connect to translation service.';
+        pendingIdleMessage = connectionFailureMessage();
     };
 }
 

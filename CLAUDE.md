@@ -123,7 +123,17 @@ this frontend speaks the translated text via speechSynthesis
    the backend is Node on Fly, the contract is WebSocket, and the user's
    Render subscription has lapsed. Needs a rewrite once this frontend's own
    hosting is picked. `README.md` here is just a one-line stub.
-9. **No conversation persistence.** The conversation thread lives in the
+9. **Interim translations are received and thrown away.** `script.js` handles
+   `{ type: "translation", isFinal: false }` by assigning to
+   `entry.partialTranslationText` and returning — and that field is never
+   read anywhere, so partial captions have no visible effect. Because each
+   one is a separate billable Claude call, the backend now has
+   `TRANSLATE_INTERIM` **off by default** (added 2026-10-01) and stops
+   sending them. To get live partial captions, render
+   `partialTranslationText` in the translation bubble *first*, then set
+   `TRANSLATE_INTERIM=true` on the backend. Note it lands ~900ms behind the
+   speech, so it may not be worth it.
+10. **No conversation persistence.** The conversation thread lives in the
    DOM/JS memory only; a page refresh loses it. Not currently a goal per the
    backend's roadmap ("session persistence" is listed as not-yet-built).
 
@@ -229,8 +239,22 @@ python3 -m http.server 8124
 
 Open `http://localhost:8124` (this repo's `index.html`, not the backend's
 bundled `public/index.html`) in a real browser — mic access requires a real
-browser context, not the sandboxed preview tool. `BACKEND_WS_URL` in
-`script.js` auto-detects `localhost` and points at `ws://localhost:8080/ws`.
+browser context, not the sandboxed preview tool.
+
+**Choosing which backend to talk to** (`resolveBackendUrl` in `script.js`):
+- default: `localhost`/`127.0.0.1` pages use `ws://localhost:8080/ws`, anything
+  else uses `wss://speech-translate-app.fly.dev/ws`
+- `?backend=prod` points a locally-served page at the **deployed** backend,
+  which is the only way to test a deployment without hosting this frontend
+- `?backend=local` points it back
+- the override is sticky for the browser session (`sessionStorage`), so a
+  reload without the query param keeps the last choice. The resolved URL is
+  logged to the console on every load.
+
+**Do not open `index.html` as a `file://` URL.** The browser sends
+`Origin: null`, which the backend's allowlist rejects with a 403 that looks
+exactly like the backend being down. `script.js` warns about this in the
+console and the UI says to serve it over http instead.
 
 ## Adding a supported language
 
