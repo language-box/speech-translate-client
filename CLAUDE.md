@@ -14,9 +14,9 @@ repo's copy is more likely to be current for backend internals and vice versa
 ## What this is
 
 The user speaks into the mic; speech is streamed live to the backend, which
-transcribes it (Deepgram), translates the finalized text (Google Cloud
-Translate), and synthesizes translated audio (Google Cloud TTS) that plays
-back in the browser. It's a live conversational tool, not a record-then-submit
+transcribes it (Deepgram) and translates the finalized text (the Claude API).
+This frontend then speaks the translated text with the browser's own
+`speechSynthesis`; no audio comes back over the WebSocket. It's a live conversational tool, not a record-then-submit
 form — audio streams continuously over a WebSocket while the mic is on.
 
 ```
@@ -26,9 +26,11 @@ Browser (mic capture, MediaRecorder)
 Node backend (server/wsHandler.js)
    |  relays audio, holds provider API keys — browser never sees them
    v
-Deepgram streaming STT  --transcript-->  Google Cloud Translate  --text-->  Google Cloud TTS
+Deepgram streaming STT  --transcript-->  Claude API (translation)
    v
-Node backend -> browser: { type: "transcript" }, { type: "translation" }, { type: "translationAudio" }
+Node backend -> browser: { type: "transcript" }, { type: "translation", targetLocale }
+   v
+this frontend speaks the translated text via speechSynthesis
 ```
 
 ## Architecture decision history (don't re-litigate without reason)
@@ -48,7 +50,17 @@ Node backend -> browser: { type: "transcript" }, { type: "translation" }, { type
   `WebSocket` to `BACKEND_WS_URL`, sends `{ type: "start", language,
   targetLanguage }`, streams `MediaRecorder` chunks as binary WS frames, and
   renders a running conversation thread of bubbles from `transcript` /
-  `translation` / `translationAudio` server messages.
+  `translation` server messages, speaking each finalized translation through
+  `speechSynthesis`.
+- **Google Cloud was dropped entirely (2026-10-01).** Translation moved to
+  the Claude API (backend `server/claudeClient.js`) and text-to-speech moved
+  into this frontend via `speechSynthesis`. The reason was payment, not
+  technology: Google Cloud billing rejects prepaid and virtual cards
+  globally, plus debit cards requiring 2FA, which rules out the Nigerian
+  virtual-card options available to the user. The tradeoff accepted: Marathi
+  and Telugu playback now depends on voices installed on the viewer's device,
+  and this frontend falls back to captions-only when none exists. Do not
+  reintroduce a server-side TTS stage without first solving billing.
 - Only **English, Marathi, and Telugu** are supported right now (matches
   backend `server/config.js` → `SUPPORTED_LANGUAGES`). The frontend's
   `<select>` options were trimmed from an earlier 21-language list down to
@@ -57,35 +69,33 @@ Node backend -> browser: { type: "transcript" }, { type: "translation" }, { type
 
 ## Current state / known issues (read before doing anything else)
 
-1. **Security — leaked credential in backend git history.** A Google Cloud
-   service account key (`silicon-reason-476705-s8-8c0c5f788436.json`) was
-   committed in the backend's first commit (`7d84639`), before `.gitignore`
-   was updated to exclude `*.json`. The file is gitignored *now* but is still
-   present in git history. The backend README already tells the user to use a
-   fresh key and treat the old one as compromised — confirm that key has
-   actually been revoked in the GCP console, and consider scrubbing it from
-   history (`git filter-repo` / BFG) before this repo is ever made public or
-   pushed anywhere shared.
-2. **No backend deployment target configured yet.** `render.yaml` was deleted
-   along with the rest of the Flask app; nothing has replaced it. This
-   frontend's production WebSocket URL is still a literal placeholder:
-   `script.js` → `BACKEND_WS_URL` → `'wss://your-backend-url/ws' // TODO:
-   update once the Node backend is deployed`. This is the #1 blocker to using
-   the app outside `localhost`. Whatever host you pick must support long-lived
-   WebSocket connections (Render, Fly.io, Railway — not a static host).
-3. **No Origin/CORS allowlisting on the WS server.** `server/wsHandler.js`
-   accepts connections from any origin. Fine for local dev; revisit once a
-   frontend domain is finalized and this is exposed publicly.
-4. **Backend's bundled `public/client.js` is out of sync with its own
-   protocol.** The backend serves a minimal reference frontend from its own
-   `public/` folder (reachable at `http://localhost:3000` when the backend is
-   running). It predates `translationAudio` / `prompt` / `closed` message
-   types the server now sends, and it plays each translation chunk
-   immediately rather than batching audio per pause like this repo's
-   `script.js` does. It's not broken (unrecognized message types are just
-   ignored), just confusing to reference — prefer this repo's frontend, or
-   update/delete `public/` if the duplication becomes a maintenance problem.
-5. **Backend README's roadmap section is partially stale.** It lists
+1. **Dead credential in backend git history (no longer a security issue).**
+   The Google service-account key `silicon-reason-476705-s8-8c0c5f788436.json`
+   is in the backend's commits `7d84639` and `7367d09` on `origin/main`. That
+   repo is private and the GCP account behind the key has been disqualified,
+   so the key is inert. Scrubbing it is housekeeping now, not remediation.
+2. **Backend is deployed to Fly.io.** App `speech-translate-app`, region
+   `cdg`, and this repo's `BACKEND_WS_URL` production branch already points
+   at `wss://speech-translate-app.fly.dev/ws`. **This frontend itself is not
+   hosted anywhere yet** — that is now the remaining blocker, and it has a
+   dependency: once it has an origin, the backend needs `ALLOWED_ORIGINS` set
+   to it (see #3) or the WebSocket will be rejected with a 403.
+3. ~~**No Origin/CORS allowlisting on the WS server.**~~ **Done
+   (2026-10-01).** The backend enforces an allowlist at the WebSocket
+   handshake. Rules: origins listed in its `ALLOWED_ORIGINS` env var,
+   same-origin always, any localhost port while no allowlist is configured.
+   Local dev is therefore unaffected, but a hosted copy of this frontend gets
+   a 403 until its origin is added on the backend.
+4. **Backend's bundled `public/client.js` is now badly out of sync and will
+   be silent.** The backend serves a minimal reference frontend from its own
+   `public/` folder (reachable at `http://localhost:8080` when the backend is
+   running). It still waits for `translationAudio` messages, which no longer
+   exist, and has no `speechSynthesis` path — so it will never speak
+   anything. It also predates `prompt` / `closed`. Nothing crashes (unknown
+   message types are ignored), but prefer this repo's frontend, and retire
+   `public/` or port the speech path across.
+5. ~~**Backend README's roadmap section is partially stale.**~~ **Fixed
+   (2026-10-01).** Former note: it lists
    "silence-timeout prompts" under "not yet built," but `server/config.js`
    (`SILENCE_PROMPT_MS`, `SILENCE_CLOSE_GRACE_MS`, `SILENCE_PROMPT_TEXT`) and
    `server/wsHandler.js` (`armSilenceTimer`, `promptStillThere`,
@@ -109,9 +119,10 @@ Node backend -> browser: { type: "transcript" }, { type: "translation" }, { type
    more languages are a near-term roadmap item").
 8. **`DEPLOYMENT.md` in this repo is stale.** It describes deploying this
    frontend as a static site on Render talking to the old Flask REST backend
-   at `speech-translate-app-cuvh.onrender.com`. Needs a full rewrite once the
-   new backend's hosting is decided (see issue #2). `README.md` here is just
-   a one-line stub and hasn't been touched.
+   at `speech-translate-app-cuvh.onrender.com`. All three facts are now wrong:
+   the backend is Node on Fly, the contract is WebSocket, and the user's
+   Render subscription has lapsed. Needs a rewrite once this frontend's own
+   hosting is picked. `README.md` here is just a one-line stub.
 9. **No conversation persistence.** The conversation thread lives in the
    DOM/JS memory only; a page refresh loses it. Not currently a goal per the
    backend's roadmap ("session persistence" is listed as not-yet-built).
@@ -134,14 +145,14 @@ coupling between them.
 - `{ type: "ready", language }` — Deepgram connection is open, safe to start
   streaming audio.
 - `{ type: "transcript", text, isFinal }` — interim or finalized STT result.
-- `{ type: "translation", text, targetLanguage }` — translated text for a
-  finalized transcript (text only, streamed as a caption).
-- `{ type: "translationAudio", audioBase64, mimeType }` — synthesized speech
-  for the accumulated translated text since the last pause (batched, not
-  1:1 with each `translation` message — see `wsHandler.js`
-  `speakPendingTranslation`).
-- `{ type: "prompt", text, audioBase64?, mimeType? }` — "are you still
-  there?" after 2 minutes of silence (`SILENCE_PROMPT_MS`).
+- `{ type: "translation", text, targetLanguage, targetLocale, translationId, utteranceId, isFinal }`
+  — translated text, streamed as a caption. Finalized ones carry
+  `targetLocale` (BCP-47, e.g. `mr-IN`) and a `translationId`; this frontend
+  speaks those and wires its per-line replay button to them. Interim ones
+  (`isFinal: false`) carry neither and are never spoken.
+- `{ type: "prompt", text, locale }` — "are you still there?" after 2
+  minutes of silence (`SILENCE_PROMPT_MS`). `locale` is the *source*
+  language's BCP-47 code, since the prompt addresses the speaker.
 - `{ type: "closed", reason }` — server is closing the session (e.g.
   `reason: "silence"` after 30s grace past the prompt).
 - `{ type: "error", message }` — session-ending or rejected-`start` error.
@@ -156,11 +167,16 @@ coupling between them.
   responsive (900/768/480/320px breakpoints).
 - `script.js` — WebSocket client: opens `BACKEND_WS_URL`, drives
   `MediaRecorder`, renders original/translation bubbles as messages arrive,
-  queues and sequentially plays translated-audio blobs so overlapping
-  utterances don't talk over each other.
+  and queues finalized translations through `speechSynthesis` so overlapping
+  utterances don't talk over each other. Voice selection is
+  `availableVoiceFor(locale)` (exact BCP-47 match, then language-only); when
+  no voice matches, `noteMissingVoice` switches the audio row to a
+  captions-only notice and leaves the replay button disabled. Stopping is
+  `cancelSpeech()` — `speechSynthesis.pause()`/`resume()` are too
+  inconsistent across browsers to rely on, so replay re-speaks instead.
 - `README.md` — one-line stub, not updated.
 - `DEPLOYMENT.md` — **stale**, describes the old Flask/Render setup (see
-  known issue #7).
+  known issue #8).
 
 ### Backend repo (`~/Desktop/speech_translate_app/`)
 - `server/index.js` — Express + `ws` bootstrap; serves `public/` statically;
@@ -170,15 +186,18 @@ coupling between them.
 - `server/wsHandler.js` — per-connection state machine: session start/stop,
   audio relay to Deepgram, silence-prompt/close timers, batched TTS trigger.
 - `server/deepgramClient.js` — opens the Deepgram streaming STT connection.
-- `server/googleClients.js` — Google Cloud Translate + TTS thin wrappers.
+- `server/claudeClient.js` — Claude API translation (`translateText`,
+  `hasCredentials`).
 - `server/pipeline.js` — pluggable post-transcript processor registry
   (`registerTranscriptProcessor`).
 - `server/processors/translate.js` — the one registered processor; translates
-  and forwards to TTS.
+  and emits the caption. No TTS stage exists any more.
 - `public/` — bundled minimal reference frontend, **out of sync** with the
   current protocol (see known issue #4).
-- `.env` / `.env.example` — `DEEPGRAM_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`
-  (path to service-account JSON), `PORT` (default 3000).
+- `.env` / `.env.example` — `DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY`, `PORT`
+  (default 8080), plus optional `TRANSLATION_MODEL` and `ALLOWED_ORIGINS`.
+- `scripts/check-translation.js` (`npm run check:translation`) — preflight
+  making real Claude calls, reporting per-language latency.
 - `silicon-reason-476705-s8-8c0c5f788436.json` — **leaked credential**, see
   known issue #1.
 - `README.md` — the most accurate architecture doc that exists right now;
@@ -199,8 +218,9 @@ Figma file: `https://www.figma.com/design/KWwvKeAco3k1rCiRELC9ju/translate`
 # Backend (needs Node >=18 — check `node --version` first, use nvm if it's not)
 cd ~/Desktop/speech_translate_app
 npm install
-cp .env.example .env   # fill in DEEPGRAM_API_KEY + GOOGLE_APPLICATION_CREDENTIALS
-npm start              # listens on :3000, also serves its own public/ reference frontend there
+cp .env.example .env   # fill in DEEPGRAM_API_KEY + ANTHROPIC_API_KEY
+npm run check:translation  # verify translation before starting
+npm start              # listens on :8080, also serves its own public/ reference frontend there
 
 # Frontend (this repo) — separate static server
 cd ~/Desktop/translation-frontend
@@ -210,7 +230,7 @@ python3 -m http.server 8124
 Open `http://localhost:8124` (this repo's `index.html`, not the backend's
 bundled `public/index.html`) in a real browser — mic access requires a real
 browser context, not the sandboxed preview tool. `BACKEND_WS_URL` in
-`script.js` auto-detects `localhost` and points at `ws://localhost:3000/ws`.
+`script.js` auto-detects `localhost` and points at `ws://localhost:8080/ws`.
 
 ## Adding a supported language
 
@@ -227,8 +247,8 @@ Must be changed in both repos or the two will disagree:
 
 1. Rotate/verify-revoked the leaked Google credential (security, do first,
    independent of everything else).
-2. Decide backend hosting (must support persistent WebSockets) and update the
-   `BACKEND_WS_URL` placeholder in `script.js`.
+2. Host this frontend, then set `ALLOWED_ORIGINS` on the backend's Fly app to
+   its origin, or the WebSocket handshake will 403.
 3. Add Origin allowlisting to `wsHandler.js` once a frontend domain exists.
 4. Reconcile or retire the backend's `public/` reference client so it stops
    drifting from the real protocol.

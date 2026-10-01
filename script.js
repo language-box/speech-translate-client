@@ -6,7 +6,6 @@ const BACKEND_WS_URL = (window.location.hostname === 'localhost' || window.locat
 const micBtn = document.getElementById('micBtn');
 const waveform = document.getElementById('waveform');
 const status = document.getElementById('status');
-const audioElement = document.getElementById('player');
 const sourceLangSelect = document.getElementById('sourceLang');
 const targetLangSelect = document.getElementById('targetLang');
 const swapLangsBtn = document.getElementById('swapLangs');
@@ -27,7 +26,7 @@ let ws = null;
 let mediaRecorder = null;
 let stream = null;
 let isRecording = false;
-let lastAudioUrl = null;
+let lastSpokenLine = null;
 let isPlaying = false;
 let pendingIdleMessage = null;
 
@@ -38,11 +37,13 @@ let currentOriginalBubble = null;
 let currentConversationWindow = null;
 let pendingTranslationQueue = [];
 
-const audioQueue = [];
+// Translated lines are spoken by the browser's own speech synthesis, so the
+// queue holds text rather than audio blobs. Nothing is fetched or revoked.
+const speechQueue = [];
 let isQueuePlaying = false;
+let missingVoiceLocales = new Set();
 const translationEntriesById = new Map();
 const conversationEntriesByUtteranceId = new Map();
-const historyAudioUrls = new Set();
 function normalizeTranscriptText(text) {
     return text
         .replace(/\b(?:uh+|um+|erm+|hmm+|mm+|ah+)\b[,.!?]?\s*/gi, '')
@@ -56,46 +57,123 @@ function appendTranscriptText(existingText, nextText) {
     return `${existingText} ${nextText}`;
 }
 
-function playNextInQueue() {
-    if (isQueuePlaying || audioQueue.length === 0) return;
-    isQueuePlaying = true;
-    const url = audioQueue.shift();
-    lastAudioUrl = url;
-    audioElement.src = url;
-    playAudioBtn.disabled = false;
-    audioElement.play();
+const speechSupported = 'speechSynthesis' in window;
+
+// getVoices() is empty until the engine has loaded its list, so prime it and
+// re-check when it changes rather than deciding once at startup.
+if (speechSupported) {
+    speechSynthesis.getVoices();
+    speechSynthesis.addEventListener('voiceschanged', () => {
+        missingVoiceLocales = new Set();
+    });
 }
 
-function playHistoryAudio(entry) {
-    if (entry.replayAudio && !entry.replayAudio.paused) {
-        entry.replayAudio.pause();
+function availableVoiceFor(locale) {
+    if (!speechSupported || !locale) return null;
+    const voices = speechSynthesis.getVoices();
+    if (voices.length === 0) return null;
+    const wanted = locale.toLowerCase();
+    const wantedLang = wanted.split('-')[0];
+    const normalize = (lang) => (lang || '').toLowerCase().replace('_', '-');
+    return voices.find((voice) => normalize(voice.lang) === wanted)
+        || voices.find((voice) => normalize(voice.lang).split('-')[0] === wantedLang)
+        || null;
+}
+
+function noteMissingVoice(locale) {
+    missingVoiceLocales.add(locale);
+    audioStatusEl.classList.add('active');
+    audioStatusTextEl.textContent = speechSupported
+        ? `No ${locale} voice on this device - captions only`
+        : 'This browser cannot speak text - captions only';
+}
+
+// speechSynthesis.pause()/resume() behave inconsistently across browsers, so
+// stopping means cancel, and resuming means speaking the line again.
+function cancelSpeech() {
+    speechQueue.length = 0;
+    isQueuePlaying = false;
+    if (speechSupported) speechSynthesis.cancel();
+    isPlaying = false;
+    playAudioBtn.innerHTML = PLAY_ICON;
+}
+
+function speak(line, onFinished) {
+    const utterance = new SpeechSynthesisUtterance(line.text);
+    utterance.lang = line.locale;
+    const voice = availableVoiceFor(line.locale);
+    if (voice) utterance.voice = voice;
+
+    utterance.onstart = () => {
+        isPlaying = true;
+        playAudioBtn.innerHTML = PAUSE_ICON;
+    };
+    // onerror has to settle the same way as onend, or a failed utterance
+    // would wedge the queue permanently.
+    const finish = () => {
+        isPlaying = false;
+        playAudioBtn.innerHTML = PLAY_ICON;
+        if (onFinished) onFinished();
+    };
+    utterance.onend = finish;
+    utterance.onerror = finish;
+
+    speechSynthesis.speak(utterance);
+}
+
+function playNextInQueue() {
+    if (isQueuePlaying || speechQueue.length === 0 || !speechSupported) return;
+    isQueuePlaying = true;
+    const line = speechQueue.shift();
+    lastSpokenLine = line;
+    playAudioBtn.disabled = false;
+    speak(line, () => {
+        isQueuePlaying = false;
+        if (speechQueue.length === 0) {
+            audioStatusEl.classList.remove('active');
+            audioStatusTextEl.textContent = '';
+        }
+        playNextInQueue();
+    });
+}
+
+function replayLine(entry) {
+    if (!entry.replayText) return;
+    if (isPlaying) {
+        cancelSpeech();
+        entry.replayBtn.classList.remove('playing');
         return;
     }
-
-    entry.replayAudio = new Audio(entry.replayUrl);
-    entry.replayAudio.onplay = () => entry.replayBtn.classList.add('playing');
-    entry.replayAudio.onpause = () => entry.replayBtn.classList.remove('playing');
-    entry.replayAudio.onended = () => entry.replayBtn.classList.remove('playing');
-    entry.replayAudio.play().catch(() => entry.replayBtn.classList.remove('playing'));
+    entry.replayBtn.classList.add('playing');
+    speak({ text: entry.replayText, locale: entry.replayLocale }, () => {
+        entry.replayBtn.classList.remove('playing');
+    });
 }
 
-function enqueueTranslationAudio(base64, mimeType, translationId) {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+function enqueueTranslationSpeech(text, locale, translationId) {
+    if (!text || !locale) return;
+
+    const voice = availableVoiceFor(locale);
     if (translationId) {
         const entry = translationEntriesById.get(translationId);
         if (entry) {
-            entry.replayUrl = url;
-            entry.replayBtn.disabled = false;
-            entry.replayBtn.onclick = () => playHistoryAudio(entry);
-            historyAudioUrls.add(url);
+            entry.replayText = text;
+            entry.replayLocale = locale;
+            // Replay stays disabled while the device has no voice for this
+            // language, since pressing it would be silent.
+            entry.replayBtn.disabled = !voice;
+            entry.replayBtn.onclick = () => replayLine(entry);
         }
     }
-    audioQueue.push(url);
+
+    if (!voice) {
+        noteMissingVoice(locale);
+        return;
+    }
+
+    speechQueue.push({ text, locale });
     audioStatusEl.classList.add('active');
-    audioStatusTextEl.textContent = 'Playing translation audio';
+    audioStatusTextEl.textContent = 'Speaking translation';
     playNextInQueue();
 }
 
@@ -227,8 +305,7 @@ function resetConversation() {
     pendingTranslationQueue = [];
     translationEntriesById.clear();
     conversationEntriesByUtteranceId.clear();
-    historyAudioUrls.forEach((url) => URL.revokeObjectURL(url));
-    historyAudioUrls.clear();
+    cancelSpeech();
 }
 
 function resetPanels() {
@@ -242,9 +319,9 @@ function resetPanels() {
     playAudioBtn.innerHTML = PLAY_ICON;
     audioStatusEl.classList.remove('active');
     audioStatusTextEl.textContent = '';
-    isPlaying = false;
-    audioElement.pause();
-    audioElement.src = '';
+    lastSpokenLine = null;
+    missingVoiceLocales = new Set();
+    cancelSpeech();
 }
 
 function setIdleUi(message = 'Ready to record') {
@@ -404,6 +481,7 @@ async function startSession() {
                     pendingTranslationQueue = pendingTranslationQueue.filter((item) => item !== entry);
                     entry.translationId = message.translationId;
                     if (message.translationId) translationEntriesById.set(message.translationId, entry);
+                    enqueueTranslationSpeech(message.text, message.targetLocale, message.translationId);
                 }
                 if (pendingTranslationQueue.length === 0) entry.translationRow.classList.remove('translation-pending');
                 conversationEl.scrollTop = conversationEl.scrollHeight;
@@ -411,14 +489,9 @@ async function startSession() {
             return;
         }
 
-        if (message.type === 'translationAudio') {
-            enqueueTranslationAudio(message.audioBase64, message.mimeType, message.translationId);
-            return;
-        }
-
         if (message.type === 'prompt') {
             status.textContent = message.text;
-            if (message.audioBase64) enqueueTranslationAudio(message.audioBase64, message.mimeType);
+            enqueueTranslationSpeech(message.text, message.locale);
             return;
         }
 
@@ -465,34 +538,10 @@ function stopSession() {
 }
 
 playAudioBtn.onclick = () => {
-    if (!lastAudioUrl) return;
-
     if (isPlaying) {
-        audioElement.pause();
+        cancelSpeech();
         return;
     }
-
-    audioElement.play();
-};
-
-audioElement.onplay = () => {
-    isPlaying = true;
-    playAudioBtn.innerHTML = PAUSE_ICON;
-};
-
-audioElement.onpause = () => {
-    isPlaying = false;
-    playAudioBtn.innerHTML = PLAY_ICON;
-};
-
-audioElement.onended = () => {
-    isPlaying = false;
-    playAudioBtn.innerHTML = PLAY_ICON;
-    if (!historyAudioUrls.has(lastAudioUrl)) URL.revokeObjectURL(lastAudioUrl);
-    isQueuePlaying = false;
-    if (audioQueue.length === 0) {
-        audioStatusEl.classList.remove('active');
-        audioStatusTextEl.textContent = '';
-    }
-    playNextInQueue();
+    if (!lastSpokenLine) return;
+    speak(lastSpokenLine);
 };
