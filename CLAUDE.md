@@ -171,8 +171,19 @@ coupling between them.
 
 ### This repo (`translation-frontend/`)
 - `index.html` — page structure: nav, hero, translator card (language pills +
-  swap, live conversation thread `#conversation`, audio-status/play row, mic
-  button + waveform), stats bar, features grid, footer.
+  swap, live conversation thread `#conversation`, audio-status/play row with
+  the `#clearBtn` "Clear" control, mic button + waveform), stats bar, features
+  grid, footer.
+  - **Clear button** (added 2026-10-01) wipes the thread and starts a fresh
+    session. `resetConversation()` already existed but was never called, so
+    the thread accumulated across sessions indefinitely. `clearConversation()`
+    now calls it plus `resetPanels()`, and stops an in-flight session first
+    (`stopSession()` is null-safe, and its `onclose` restores the idle UI).
+    `updateClearButton()` keeps it **hidden** (not merely disabled) until a
+    session starts or a previous conversation is still on screen, so it never
+    shows as dead UI. Note `.clear-btn` sets `display`, which outranks the UA
+    stylesheet's `[hidden] { display: none }`, so `.clear-btn[hidden]` in
+    `style.css` is what actually makes the attribute work.
 - `style.css` — dark gradient theme matching the Figma design, fully
   responsive (900/768/480/320px breakpoints).
 - `script.js` — WebSocket client: opens `BACKEND_WS_URL`, drives

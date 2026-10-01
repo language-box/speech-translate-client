@@ -55,6 +55,7 @@ const conversationEmptyEl = document.getElementById('conversationEmpty');
 const audioStatusEl = document.getElementById('audioStatus');
 const audioStatusTextEl = document.getElementById('audioStatusText');
 const playAudioBtn = document.getElementById('playAudioBtn');
+const clearBtn = document.getElementById('clearBtn');
 
 const PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>';
 const PAUSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/></svg>';
@@ -403,6 +404,28 @@ async function diagnoseConnection() {
     }
 }
 
+// Shown only once a session has started, or while a previous conversation is
+// still on screen and worth clearing. Hidden rather than disabled, so it never
+// appears as dead UI before there is anything to act on.
+function updateClearButton() {
+    const hasContent = conversationEl.querySelector('.conversation-window') !== null;
+    clearBtn.hidden = !hasContent && !isRecording;
+}
+
+// Clearing mid-recording is deliberately allowed: "start again" is the usual
+// reason to reach for this, and stopSession tears the socket and mic down
+// cleanly, with its onclose handler restoring the idle UI.
+function clearConversation() {
+    if (isRecording) stopSession();
+    resetConversation();
+    resetPanels();
+    conversationEmptyEl.style.display = '';
+    status.textContent = 'Ready to record';
+    updateClearButton();
+}
+
+clearBtn.onclick = clearConversation;
+
 function setIdleUi(message = 'Ready to record') {
     isRecording = false;
     micBtn.disabled = false;
@@ -413,6 +436,7 @@ function setIdleUi(message = 'Ready to record') {
     targetLangSelect.disabled = false;
     swapLangsBtn.disabled = false;
     status.textContent = message;
+    updateClearButton();
 }
 
 micBtn.onclick = async () => {
@@ -443,13 +467,28 @@ async function startSession() {
     try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
-        status.textContent = 'Microphone access denied.';
+        // err.name is the only thing separating "the user clicked Block" from
+        // "another app holds the device" from "there is no device". Collapsing
+        // them all into "access denied" makes every mic problem look alike.
+        const reasons = {
+            NotAllowedError: 'Microphone permission was denied for this page.',
+            NotFoundError: 'No microphone was found on this device.',
+            NotReadableError: 'The microphone is being used by another application.',
+            OverconstrainedError: 'No microphone matches the requested settings.',
+            SecurityError: 'The browser blocked microphone access on this page.',
+            AbortError: 'The microphone could not be started.',
+        };
+        status.textContent = reasons[err.name] || 'Microphone unavailable.';
+        console.error(`[speech-translate] getUserMedia failed: ${err.name}: ${err.message}`);
         micBtn.disabled = false;
         sourceLangSelect.disabled = false;
         targetLangSelect.disabled = false;
         swapLangsBtn.disabled = false;
         return;
     }
+
+    // One line per session, so the console shows how far startup actually got.
+    console.info(`[speech-translate] microphone open: ${stream.getAudioTracks().map((t) => t.label).join(', ') || '(unlabelled track)'}`);
 
     try {
         ws = new WebSocket(BACKEND_WS_URL);
@@ -473,7 +512,9 @@ async function startSession() {
         const message = JSON.parse(event.data);
 
         if (message.type === 'ready') {
+            console.info(`[speech-translate] session ready (${message.language}); streaming audio`);
             isRecording = true;
+            updateClearButton();
             micBtn.disabled = false;
             micBtn.classList.add('recording');
             micBtn.setAttribute('aria-label', 'Stop recording');
@@ -506,6 +547,7 @@ async function startSession() {
             if (!transcriptText) return;
             if (!currentOriginalBubble) {
                 currentOriginalBubble = createUtteranceEntry();
+                updateClearButton();
             }
             const conversationWindow = currentOriginalBubble.conversationWindow;
             if (message.isFinal) {
@@ -586,7 +628,8 @@ async function startSession() {
         }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+        console.info(`[speech-translate] socket closed (code ${event.code}${event.reason ? ', ' + event.reason : ''})`);
         if (mediaRecorder) {
             mediaRecorder.stop();
             mediaRecorder = null;

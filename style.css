@@ -407,6 +407,42 @@ body {
     color: var(--text-muted);
 }
 
+/* Pushed to the far right of the audio row so it never competes with the
+   play button for attention; it is a destructive action, not a primary one. */
+.clear-btn {
+    flex: none;
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.clear-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.clear-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.45);
+    color: #fff;
+}
+
+/* .clear-btn sets display, and an author rule outranks the UA stylesheet's
+   [hidden] { display: none }, so the attribute needs this to take effect. */
+.clear-btn[hidden] {
+    display: none;
+}
+
 .audio-status.active .play-btn {
     animation: audio-glow 1.2s ease-in-out infinite;
 }
