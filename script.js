@@ -2,11 +2,19 @@
 // `?backend=local` overrides it and the choice sticks for the session, so a
 // page served from localhost can be pointed at the deployed backend. Without
 // this there is no way to test a deployment except from the deployed origin.
-const LOCAL_WS_URL = 'ws://localhost:8080/ws';
 const PROD_WS_URL = 'wss://speech-translate-app.fly.dev/ws';
 
+// Loopback plus the RFC1918 ranges. A page opened from a phone on the same
+// wifi (http://192.168.x.x:8124) is still local development, and must target
+// this machine's backend rather than falling through to production.
+const PRIVATE_HOST = /^(localhost|127\.0\.0\.1|\[?::1\]?|0\.0\.0\.0|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})$/;
+
+// Derived from the page's own hostname so the backend is reachable from
+// whichever device is viewing, not just from this machine.
+const LOCAL_WS_URL = `ws://${PRIVATE_HOST.test(window.location.hostname) ? window.location.hostname : 'localhost'}:8080/ws`;
+
 function resolveBackendUrl() {
-    const servedLocally = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const servedLocally = PRIVATE_HOST.test(window.location.hostname);
 
     let override = null;
     try {
@@ -357,14 +365,42 @@ function resetPanels() {
     cancelSpeech();
 }
 
-function connectionFailureMessage() {
-    if (window.location.protocol === 'file:') {
-        return 'Serve this page over http instead of opening the file directly.';
+// What the user sees. Deliberately free of hostnames, ports and flag names:
+// the person using this is not debugging it, and the detail goes to the
+// console instead via diagnoseConnection().
+const USER_FACING_CONNECT_ERROR = 'Translation service is unavailable. Please try again in a moment.';
+
+function backendProbeUrl() {
+    return BACKEND_WS_URL.replace(/^ws/, 'http').replace(/\/ws$/, '/languages');
+}
+
+// A browser never exposes the HTTP status of a failed WebSocket handshake, so
+// `onerror` alone cannot tell a refused origin from a server that is down.
+// Probing the plain HTTP endpoint separates the two: if that responds, the
+// service is up and the handshake was refused.
+async function diagnoseConnection() {
+    const probeUrl = backendProbeUrl();
+    let reachable = false;
+    try {
+        await fetch(probeUrl, { mode: 'no-cors', cache: 'no-store' });
+        reachable = true;
+    } catch {
+        reachable = false;
     }
-    if (BACKEND_WS_URL === LOCAL_WS_URL) {
-        return 'No backend at localhost:8080. Start it, or add ?backend=prod to use the deployed one.';
+
+    if (reachable) {
+        console.error(
+            `[speech-translate] ${probeUrl} responded, so the WebSocket handshake was REFUSED, not unreachable.\n`
+            + `  This page's origin: ${window.location.origin}\n`
+            + `  The backend accepts localhost and same-origin only by default.\n`
+            + `  Fix: add this origin to ALLOWED_ORIGINS on the backend, or set ALLOW_LAN_ORIGINS=true for local testing.`,
+        );
+    } else {
+        console.error(
+            `[speech-translate] ${probeUrl} is unreachable: the backend is down, still cold-starting, or blocked by the network.\n`
+            + `  Target was ${BACKEND_WS_URL}. Use ?backend=local or ?backend=prod to switch.`,
+        );
     }
-    return 'Cannot reach the deployed backend at speech-translate-app.fly.dev.';
 }
 
 function setIdleUi(message = 'Ready to record') {
@@ -420,7 +456,8 @@ async function startSession() {
     } catch (err) {
         stream?.getTracks().forEach((track) => track.stop());
         stream = null;
-        setIdleUi(connectionFailureMessage());
+        setIdleUi(USER_FACING_CONNECT_ERROR);
+        diagnoseConnection();
         return;
     }
 
@@ -562,7 +599,8 @@ async function startSession() {
     };
 
     ws.onerror = () => {
-        pendingIdleMessage = connectionFailureMessage();
+        pendingIdleMessage = USER_FACING_CONNECT_ERROR;
+        diagnoseConnection();
     };
 }
 

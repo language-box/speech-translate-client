@@ -254,7 +254,23 @@ browser context, not the sandboxed preview tool.
 **Do not open `index.html` as a `file://` URL.** The browser sends
 `Origin: null`, which the backend's allowlist rejects with a 403 that looks
 exactly like the backend being down. `script.js` warns about this in the
-console and the UI says to serve it over http instead.
+console.
+
+**Testing from a phone on the same wifi** (worth doing, since Android ships
+much better Marathi and Telugu voices than a Linux desktop): browse to
+`http://<dev-machine-lan-ip>:8124`. `PRIVATE_HOST` in `script.js` treats
+RFC1918 addresses as local, so the page targets
+`ws://<that-same-host>:8080/ws` instead of falling through to production. The
+backend needs `ALLOW_LAN_ORIGINS=true` in its local `.env` to accept that
+origin. Pointing a LAN-IP page at `?backend=prod` will **not** work, because
+production only accepts localhost and same-origin.
+
+**"Translation service is unavailable" is deliberately vague** — it is what an
+end user sees. The real cause is in the console. Because a browser never
+exposes the HTTP status of a failed WebSocket handshake, `diagnoseConnection()`
+probes `/languages` over plain HTTP and logs whether the handshake was
+*refused* (service up, origin not allowed) or the service is genuinely
+unreachable. Always read the console before concluding the backend is down.
 
 ## Adding a supported language
 
