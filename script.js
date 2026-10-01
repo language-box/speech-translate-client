@@ -247,7 +247,7 @@ function createBubble(kind, labelText, parent = conversationEl) {
         bubble.appendChild(replayBtn);
     }
     parent.appendChild(bubble);
-    conversationEl.scrollTop = conversationEl.scrollHeight;
+    followConversationTail();
     return { bubble, textEl: p, replayBtn };
 }
 
@@ -325,7 +325,7 @@ function createUtteranceEntry() {
         currentConversationWindow.translationText = '';
         currentConversationWindow.translationUnavailableShown = false;
     }
-    conversationEl.scrollTop = conversationEl.scrollHeight;
+    followConversationTail();
     return {
         bubble: translationBubble,
         originalTextEl,
@@ -335,6 +335,31 @@ function createUtteranceEntry() {
         conversationWindow: currentConversationWindow,
         partialTranslationText: '',
     };
+}
+
+// Auto-scrolling fights the user the moment they scroll up to re-read an
+// earlier exchange, which is easy to do while a long transcript is still
+// streaming in.
+//
+// Deciding this from scroll events is fragile: a programmatic scroll does not
+// reliably emit one everywhere. Instead, remember how tall the thread was last
+// time and subtract the newly added height, which recovers exactly where the
+// viewport sat *before* this append. If that was at the bottom, keep
+// following; if the user had scrolled away, leave the view alone. Scrolling
+// back to the bottom resumes following on the next message, with no state to
+// get out of sync.
+const SCROLL_PIN_THRESHOLD_PX = 48;
+let lastKnownScrollHeight = 0;
+
+function followConversationTail() {
+    const addedHeight = Math.max(0, conversationEl.scrollHeight - lastKnownScrollHeight);
+    const distanceBeforeAppend =
+        conversationEl.scrollHeight - addedHeight - conversationEl.scrollTop - conversationEl.clientHeight;
+
+    if (distanceBeforeAppend <= SCROLL_PIN_THRESHOLD_PX) {
+        conversationEl.scrollTop = conversationEl.scrollHeight;
+    }
+    lastKnownScrollHeight = conversationEl.scrollHeight;
 }
 
 function resetConversation() {
@@ -347,6 +372,7 @@ function resetConversation() {
     pendingTranslationQueue = [];
     translationEntriesById.clear();
     conversationEntriesByUtteranceId.clear();
+    lastKnownScrollHeight = 0;
     cancelSpeech();
 }
 
@@ -563,7 +589,7 @@ async function startSession() {
             if (message.utteranceId) {
                 conversationEntriesByUtteranceId.set(message.utteranceId, currentOriginalBubble);
             }
-            conversationEl.scrollTop = conversationEl.scrollHeight;
+            followConversationTail();
 
             if (message.isFinal) {
                 const entry = currentOriginalBubble;
@@ -606,7 +632,7 @@ async function startSession() {
                     enqueueTranslationSpeech(message.text, message.targetLocale, message.translationId);
                 }
                 if (pendingTranslationQueue.length === 0) entry.translationRow.classList.remove('translation-pending');
-                conversationEl.scrollTop = conversationEl.scrollHeight;
+                followConversationTail();
             }
             return;
         }

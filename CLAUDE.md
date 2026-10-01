@@ -182,6 +182,15 @@ coupling between them.
     buttons; kept as the one obvious stop control for a long queue. With it
     and the Clear button both hidden and the status text empty, the whole
     `.audio-status` row collapses to zero height.
+  - **Scroll pinning** (added 2026-10-01): the thread used to force
+    `scrollTop = scrollHeight` on every append, yanking the view back to the
+    tail while the user was scrolled up reading. `followConversationTail()`
+    now reconstructs where the viewport sat *before* the append, by
+    subtracting the newly added height from `scrollHeight`, and scrolls only
+    if that was within `SCROLL_PIN_THRESHOLD_PX` (48) of the bottom.
+    Deliberately **not** driven by `scroll` events: programmatic scrolls do
+    not reliably emit them in every environment, and the height-delta
+    comparison needs no listener and no state that can desync.
   - **Clear button** (added 2026-10-01) wipes the thread and starts a fresh
     session. `resetConversation()` already existed but was never called, so
     the thread accumulated across sessions indefinitely. `clearConversation()`
